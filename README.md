@@ -206,3 +206,6 @@ The checks inspect staged content, commit messages, and history for private data
 Your local camera identifiers and notification topic are also checked when config exists.
 Findings report the file and category without printing the matching value.
 Use a GitHub noreply email for commits.
+An optional external denylist can block additional personal names or network labels.
+Keep that JSON array outside the repository and set its path with
+`git config --local privacy.denylist PATH_TO_PRIVATE_FILE`.

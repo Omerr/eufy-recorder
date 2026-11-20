@@ -22,6 +22,19 @@ const allowed = (name) => roots.has(name) ||
 
 // Runtime values are used locally for comparison and never printed or committed.
 const privateValues = [];
+try {
+  let denylist = git('config', '--get', 'privacy.denylist').toString().trim();
+  if (process.platform !== 'win32' && /^[a-zA-Z]:[\\/]/.test(denylist)) {
+    denylist = '/mnt/' + denylist[0].toLowerCase() + '/' + denylist.slice(3).replaceAll('\\', '/');
+  }
+  if (denylist) {
+    const values = JSON.parse(readFileSync(denylist, 'utf8'));
+    if (!Array.isArray(values) || values.some(value => typeof value !== 'string' || !value)) throw new Error('Invalid local privacy denylist.');
+    privateValues.push(...values);
+  }
+} catch (error) {
+  if (!('status' in error) || error.status !== 1) throw error;
+}
 const localFile = path.resolve('recorder.json');
 if (existsSync(localFile)) {
   const config = JSON.parse(readFileSync(localFile, 'utf8').replace(/^\uFEFF/, ''));
@@ -40,6 +53,9 @@ const patterns = [
   ['live notification topic', /\beufy-[a-f0-9]{32}\b/g],
   ['private key', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g],
   ['GitHub credential', /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/g],
+  ['access token', /\btk_[a-zA-Z0-9]{20,}\b/g],
+  ['JSON web token', /\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\b/g],
+  ['device MAC address', /\b(?:[a-f0-9]{2}:){5}[a-f0-9]{2}\b/gi],
   ['private network address', /\b(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b/g],
   ['personal home path', /(?:\/home\/(?!example\b|runner\b)[a-zA-Z0-9_-]+|C:\\Users\\(?!Example\b|Public\b)[a-zA-Z0-9_-]+)/g],
 ];
@@ -56,7 +72,10 @@ function check(name, bytes, metadata = false) {
   }
   if (bytes.includes(0)) { findings.push(`${name}: unexpected binary content`); return; }
   const text = bytes.toString('utf8');
-  for (const value of privateValues) if (text.includes(value)) findings.push(`${name}: matches a local private configuration value`);
+  for (const value of privateValues) if (text.toLowerCase().includes(value.toLowerCase())) findings.push(`${name}: matches a local private configuration value`);
+  for (const match of text.matchAll(/\b[a-f0-9]{64}\b/gi)) {
+    if (match[0].toLowerCase() !== fixtureHash) findings.push(`${name}: possible opaque access key`);
+  }
   for (const [label, expression] of patterns) {
     expression.lastIndex = 0;
     if (expression.test(text)) findings.push(`${name}: possible ${label}`);

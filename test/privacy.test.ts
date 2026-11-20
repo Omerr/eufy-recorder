@@ -53,3 +53,16 @@ test('public source passes, while a secret hidden in a historical commit message
   assert.equal(result.status, 1);
   assert.match(result.stderr, /commit metadata/);
 });
+
+test('opaque API keys and values from an external local denylist cannot be published', async (t) => {
+  const { directory, git, check } = await repo(t);
+  await writeFile(path.join(directory, 'README.md'), 'a'.repeat(64));
+  git('add', 'README.md');
+  assert.match(check('--staged').stderr, /opaque access key/);
+  const denied = path.join(directory, 'private.local.json');
+  await writeFile(denied, JSON.stringify(['synthetic-private-network']));
+  git('config', 'privacy.denylist', denied);
+  await writeFile(path.join(directory, 'README.md'), 'Synthetic-Private-Network');
+  git('add', 'README.md');
+  assert.match(check('--staged').stderr, /local private configuration value/);
+});
