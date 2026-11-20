@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { AutomationEngine, Presence, automationConfig, type DetectionKind, type PresenceState } from './automation.ts';
 import { controlPage } from './control-page.ts';
+import type { RouterPresence } from './router.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -20,6 +21,7 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 export async function startAutomationApi(options: {
   engine: AutomationEngine; presence: Presence; configFile: string;
   token: string; signal: AbortSignal; log: (message: string) => void;
+  router?: RouterPresence;
 }): Promise<Server> {
   if (options.token.length < 32) throw new Error('Automation API token must have at least 32 characters.');
   const binding = options.engine.config().api;
@@ -41,10 +43,11 @@ export async function startAutomationApi(options: {
     try {
       const url = new URL(request.url || '/', 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus() });
+        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
       } else if (request.method === 'POST' && url.pathname === '/api/presence') {
+        if (options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
         const value = await body(request);
         if (!['home', 'away', 'unknown'].includes(value.state as string)) throw new Error('state must be home, away, or unknown.');
         options.presence.update(value.state as PresenceState);
@@ -72,8 +75,13 @@ export async function startAutomationApi(options: {
       } else if (request.method === 'DELETE' && url.pathname === '/api/speaker-test') {
         options.engine.cancelSpeakerTest();
         reply(200, { cancelled: true });
+      } else if (request.method === 'POST' && url.pathname === '/api/router/refresh') {
+        await body(request);
+        if (!options.router) throw new Error('Router monitoring is not initialized.');
+        await options.router.refresh(true);
+        reply(200, options.router.status());
       } else if (request.method === 'PUT' && url.pathname === '/api/config') {
-        const value = automationConfig(await body(request));
+        const value = automationConfig({ ...options.engine.config(), ...await body(request) });
         if (value.api.host !== binding.host || value.api.port !== binding.port || value.api.tokenEnv !== binding.tokenEnv) throw new Error('Changing API binding or token settings requires editing recorder.json and restarting.');
         const save = saving.then(async () => {
           const original = JSON.parse((await readFile(options.configFile, 'utf8')).replace(/^\uFEFF/, ''));
@@ -81,7 +89,9 @@ export async function startAutomationApi(options: {
           const temporary = `${options.configFile}.tmp`;
           await writeFile(temporary, JSON.stringify(original, null, 2) + '\n', { mode: 0o600 });
           await rename(temporary, options.configFile);
+          if (JSON.stringify(options.engine.config().household) !== JSON.stringify(value.household)) options.presence.update('unknown');
           options.engine.configure(value);
+          void options.router?.refresh().catch(() => options.log('Router presence refresh failed.'));
         });
         saving = save.catch(() => {});
         await save;

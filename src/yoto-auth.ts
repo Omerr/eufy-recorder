@@ -74,7 +74,7 @@ export class YotoAuth {
     try {
       const url = new URL('https://login.yotoplay.com/authorize');
       url.search = new URLSearchParams({
-        audience: 'https://api.yotoplay.com', scope: 'family:devices:control family:library:view offline_access',
+        audience: 'https://api.yotoplay.com', scope: 'family:devices:view family:devices:control family:library:view offline_access',
         response_type: 'code', client_id: clientId, code_challenge: challenge, code_challenge_method: 'S256', redirect_uri: redirectUri, state,
       }).toString();
       log('Open this URL in a browser on this Windows PC:');

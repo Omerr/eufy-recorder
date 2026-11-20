@@ -49,6 +49,45 @@ Each rule specifies:
 Add `before: "07:00"` to continue through the following morning.
 Person and stranger detections share a rule's cooldown.
 
+## Router-based household presence
+
+The HOT Box 5F adapter supports the GR140IG local interface.
+It reads the router's current Wi-Fi association lists for both bands.
+Cached device names help identify phones; cached leases never count as presence.
+
+Save the local router administrator credentials on Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Connect-Router.ps1
+```
+
+The prompt uses the local gateway address by default. Use `-Address` to select another local router URL.
+It saves credentials with Windows encryption in the private application state folder.
+Restart the recorder after saving or changing those credentials.
+
+On the configuration page, enable **Use the router to check everyone at home**.
+Register each person's phone addresses under **Household Wi-Fi**.
+The connected-device table can add addresses to a person with a checkbox.
+Include the phone's addresses for every home Wi-Fi network; Android can use a different randomized address per network.
+Save the household configuration after editing it.
+
+Defaults:
+
+- Read the router every 60 seconds.
+- Either registered phone connected means home immediately.
+- All registered phones absent for three minutes means away.
+- Missing phone mappings or failed router reads mean unknown.
+
+An away-only rule stays blocked during unknown states and the departure grace period.
+Changing phone mappings restarts that grace period.
+While router presence is enabled, MacroDroid reports cannot override the household state.
+The phone apps are optional with this source.
+
+Wi-Fi presence is a connection-based estimate of occupancy. A phone with Wi-Fi switched off counts as absent.
+Check that phones remain associated with their screens off before relying on the setup.
+Rejected router credentials pause further login attempts until the recorder is restarted with corrected credentials.
+No router network settings are changed by the monitor.
+
 ## Android presence with MacroDroid
 
 Presence starts as unknown after each recorder restart.
@@ -134,7 +173,7 @@ Use **Cancel speaker test** to disarm it or stop its playback.
 Yoto support uses its official OAuth and MQTT APIs.
 Create a public client in the [Yoto developer portal](https://yoto.dev/get-started/start-here).
 Register `http://127.0.0.1:8787/callback` as its redirect URL.
-Allow device-control, library-read, and offline-access scopes.
+Allow device-read, device-control, library-read, and offline-access scopes.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Recorder.ps1 yoto-setup
@@ -161,6 +200,7 @@ All API routes require the bearer key. The root page contains only the login UI 
 | `PUT /api/config` | Validate and save rules and devices |
 | `POST /api/presence` | Report home, away, or unknown |
 | `POST /api/simulate` | Preview a camera event without executing actions |
+| `POST /api/router/refresh` | Read the current router association snapshot |
 | `POST /api/test` | Run one configured device action immediately |
 | `POST /api/speaker-test` | Arm one speaker playback on the next person detection |
 | `DELETE /api/speaker-test` | Cancel the one-time speaker test |

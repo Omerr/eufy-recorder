@@ -16,6 +16,7 @@ import { Actions } from './actions.ts';
 import { startAutomationApi } from './automation-api.ts';
 import { YotoAuth } from './yoto-auth.ts';
 import type { Server } from 'node:http';
+import { HotboxClient, RouterPresence } from './router.ts';
 
 interface Config {
   countryCode: string;
@@ -160,6 +161,7 @@ async function main(): Promise<void> {
     execute: (name, device, signal) => actions.execute(name, device, signal), log, signal: abort.signal,
   });
   let automationApi: Server | undefined;
+  let routerPresence: RouterPresence | undefined;
   let instance: InstanceLock | undefined;
   let stopTimer: ReturnType<typeof setInterval> | undefined;
   let batteryMonitor: BatteryMonitor | undefined;
@@ -312,12 +314,27 @@ async function main(): Promise<void> {
       retentionTimer = setInterval(() => { void cleanRecordings(); }, 60 * 60_000);
       log(`Recording retention: ${settings.retention.maxDays} days, ${settings.retention.maxGB} GB, oldest completed clips removed first.`);
       accepting = true;
+      let routerClient: HotboxClient | null = null;
+      if (process.env.ROUTER_USER && process.env.ROUTER_PASSWORD !== undefined) {
+        try {
+          const routerSettings = JSON.parse((await readFile(path.join(stateDir, 'router-settings.json'), 'utf8')).replace(/^\uFEFF/, ''));
+          routerClient = new HotboxClient({
+            address: routerSettings.address, username: process.env.ROUTER_USER, password: process.env.ROUTER_PASSWORD,
+            sessionFile: path.join(stateDir, 'router-session.json'), signal: abort.signal,
+          });
+        } catch { log('Router settings are unavailable. Run Connect-Router.ps1 locally and restart.'); }
+      }
+      routerPresence = new RouterPresence({
+        client: routerClient, settings: () => automations.config().household,
+        publish: (state) => { phonePresence.update(state); automations.presenceChanged(); }, log, signal: abort.signal,
+      });
+      void routerPresence.refresh().catch(() => log('Router presence initialization failed.'));
       const apiToken = process.env[settings.automations.api.tokenEnv];
       if (apiToken) {
         try {
           automationApi = await startAutomationApi({
             engine: automations, presence: phonePresence, configFile: path.join(root, 'recorder.json'),
-            token: apiToken, signal: abort.signal, log,
+            token: apiToken, signal: abort.signal, log, router: routerPresence,
           });
         } catch (error) {
           // A control API failure must not interrupt security footage recording.
@@ -353,6 +370,7 @@ async function main(): Promise<void> {
     if (retentionTimer) clearInterval(retentionTimer);
     await cleanup;
     await batteryMonitor?.flush();
+    await routerPresence?.stop();
     automationApi?.closeAllConnections();
     await automations.flush();
     await Promise.allSettled([...active.values()].map((item) => item.done));

@@ -1,3 +1,5 @@
+import { defaultHousehold, validateHousehold, type HouseholdConfig } from './router.ts';
+
 export type PresenceState = 'home' | 'away' | 'unknown';
 export type DetectionKind = 'motion' | 'personDetected' | 'strangerDetected';
 export interface Detection {
@@ -28,6 +30,7 @@ export interface AutomationConfig {
   api: { host: string; port: number; tokenEnv: string };
   devices: Record<string, AutomationDevice>;
   rules: AutomationRule[];
+  household: HouseholdConfig;
 }
 export const defaultAutomation: AutomationConfig = {
   enabled: false,
@@ -35,10 +38,17 @@ export const defaultAutomation: AutomationConfig = {
   presenceMaxAgeMinutes: 15,
   api: { host: '127.0.0.1', port: 8788, tokenEnv: 'EUFY_AUTOMATION_TOKEN' },
   devices: {}, rules: [],
+  household: defaultHousehold,
 };
 
 export function automationConfig(value: Partial<AutomationConfig> | undefined): AutomationConfig {
-  const result = { ...defaultAutomation, ...value, api: { ...defaultAutomation.api, ...value?.api } };
+  const result = {
+    ...defaultAutomation, ...value, api: { ...defaultAutomation.api, ...value?.api },
+    household: {
+      ...defaultHousehold, ...value?.household,
+      people: (value?.household?.people || defaultHousehold.people).map((person) => ({ ...person, macs: [...person.macs] })),
+    },
+  };
   validateAutomation(result);
   return result;
 }
@@ -48,6 +58,7 @@ const envName = (value: unknown) => typeof value === 'string' && /^[A-Z][A-Z0-9_
 const clockTime = (value: unknown): value is string => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 export function validateAutomation(value: AutomationConfig): void {
+  validateHousehold(value.household);
   if (typeof value.enabled !== 'boolean') throw new Error('automations.enabled must be true or false.');
   try { new Intl.DateTimeFormat('en', { timeZone: value.timeZone }).format(); }
   catch { throw new Error('automations.timeZone must be an IANA time zone.'); }
@@ -264,3 +275,4 @@ export class AutomationEngine {
     } finally { this.running.delete(rule.id); }
   }
 }
+

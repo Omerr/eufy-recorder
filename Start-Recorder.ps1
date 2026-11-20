@@ -130,7 +130,10 @@ $previousState = $env:EUFY_STATE_DIR
 $previousNtfyToken = $env:NTFY_TOKEN
 $previousAutomationToken = $env:EUFY_AUTOMATION_TOKEN
 $previousYotoClient = $env:YOTO_CLIENT_ID
+$previousRouterUser = $env:ROUTER_USER
+$previousRouterPassword = $env:ROUTER_PASSWORD
 try {
+    $nodeMode = $Mode
     if ($Mode -notin @('ntfy-test', 'yoto-setup')) {
         $credential = Import-Clixml -LiteralPath $credentialFile
         $env:EUFY_EMAIL = $credential.UserName
@@ -143,7 +146,7 @@ try {
     }
     if ($Mode -eq 'yoto-setup') {
         $env:YOTO_CLIENT_ID = (Read-Host 'Yoto public OAuth client ID').Trim()
-        $Mode = 'yoto-login'
+        $nodeMode = 'yoto-login'
     }
     if (Test-Path -LiteralPath $ntfyTokenFile) {
         $secureToken = (Get-Content -LiteralPath $ntfyTokenFile -Raw).Trim() | ConvertTo-SecureString
@@ -151,7 +154,12 @@ try {
         $env:NTFY_TOKEN = $tokenCredential.GetNetworkCredential().Password
     }
     $env:EUFY_STATE_DIR = $stateDir
-    $nodeArgs = @('src/cli.ts', $Mode)
+    if ($Mode -eq 'watch' -and (Test-Path -LiteralPath (Join-Path $stateDir 'router-credential.xml'))) {
+        $routerCredential = Import-Clixml -LiteralPath (Join-Path $stateDir 'router-credential.xml')
+        $env:ROUTER_USER = $routerCredential.UserName
+        $env:ROUTER_PASSWORD = $routerCredential.GetNetworkCredential().Password
+    }
+    $nodeArgs = @('src/cli.ts', $nodeMode)
     if ($Camera) { $nodeArgs += @('--camera', $Camera) }
     if ($Mode -eq 'record') { $nodeArgs += @('--seconds', "$Seconds") }
     & node @nodeArgs
@@ -163,5 +171,7 @@ try {
     $env:NTFY_TOKEN = $previousNtfyToken
     $env:EUFY_AUTOMATION_TOKEN = $previousAutomationToken
     $env:YOTO_CLIENT_ID = $previousYotoClient
+    $env:ROUTER_USER = $previousRouterUser
+    $env:ROUTER_PASSWORD = $previousRouterPassword
 }
 exit $result

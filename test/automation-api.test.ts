@@ -59,4 +59,10 @@ test('automation API authenticates updates, preserves private recorder settings,
   assert.equal(saved.automations.rules[0].after, '18:00');
   const invalid = await fetch(base + '/api/presence', { method: 'POST', headers, body: '{"state":"maybe"}' });
   assert.equal(invalid.status, 400);
+  const householdConfig = structuredClone(config);
+  householdConfig.household.enabled = true;
+  assert.equal((await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify(householdConfig) })).status, 200);
+  assert.equal(presence.snapshot(15).state, 'unknown');
+  assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: '{"state":"away"}' })).status, 400);
+  assert.equal(presence.snapshot(15).state, 'unknown');
 });

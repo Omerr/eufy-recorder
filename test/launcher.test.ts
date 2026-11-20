@@ -87,3 +87,21 @@ test('an encrypted automation token survives file newlines and loads into a chil
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /api-token-ready/);
 });
+
+test('Yoto setup dispatches its internal login command without changing the validated mode', { skip: process.platform !== 'win32' }, async (t) => {
+  const directory = await workspace(t);
+  await copyFile(path.join(directory, 'recorder.example.json'), path.join(directory, 'recorder.json'));
+  await mkdir(path.join(directory, 'node_modules', '@mega-yfue', 'eufy-sdk'), { recursive: true });
+  await mkdir(path.join(directory, 'src'));
+  await writeFile(path.join(directory, 'src', 'cli.ts'), 'if(process.argv[2]!=="yoto-login"||process.env.YOTO_CLIENT_ID!=="example-client")process.exit(1);console.log("yoto-login-dispatched");');
+  const result = launch(directory, 'yoto-setup', `
+    function global:Read-Host {
+      param([string]$Prompt)
+      if ($Prompt -eq 'Yoto public OAuth client ID') { return 'example-client' }
+      throw "Unexpected prompt: $Prompt"
+    }
+  `);
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /yoto-login-dispatched/);
+});

@@ -8,28 +8,96 @@
     "tokenEnv": "EUFY_AUTOMATION_TOKEN"
   },
   "devices": {
-    "entry-light": { "type": "yeelight", "host": "light.local", "port": 55443 },
-    "camera-message": { "type": "eufy-audio", "camera": "CAMERA_SERIAL", "file": "audio/visitor.aac" },
-    "music-player": { "type": "yoto", "deviceId": "PLAYER_ID", "tokenEnv": "YOTO_ACCESS_TOKEN", "cardUri": "CARD_URI", "volume": 20 }
+    "entry-light": {
+      "type": "yeelight",
+      "host": "light.local",
+      "port": 55443
+    },
+    "camera-message": {
+      "type": "eufy-audio",
+      "camera": "CAMERA_SERIAL",
+      "file": "audio/visitor.aac"
+    },
+    "music-player": {
+      "type": "yoto",
+      "deviceId": "PLAYER_ID",
+      "tokenEnv": "YOTO_ACCESS_TOKEN",
+      "cardUri": "CARD_URI",
+      "volume": 20
+    }
   },
   "rules": [
     {
-      "id": "evening-entry-light", "enabled": false,
-      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
-      "after": "17:00", "presence": "away", "cooldownSeconds": 120,
-      "actions": [{ "device": "entry-light" }]
+      "id": "evening-entry-light",
+      "enabled": false,
+      "cameras": [
+        "CAMERA_SERIAL"
+      ],
+      "events": [
+        "personDetected",
+        "strangerDetected"
+      ],
+      "after": "17:00",
+      "presence": "away",
+      "cooldownSeconds": 120,
+      "actions": [
+        {
+          "device": "entry-light"
+        }
+      ]
     },
     {
-      "id": "entry-voice", "enabled": false,
-      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
-      "presence": "away", "cooldownSeconds": 300,
-      "actions": [{ "device": "camera-message" }]
+      "id": "entry-voice",
+      "enabled": false,
+      "cameras": [
+        "CAMERA_SERIAL"
+      ],
+      "events": [
+        "personDetected",
+        "strangerDetected"
+      ],
+      "presence": "away",
+      "cooldownSeconds": 300,
+      "actions": [
+        {
+          "device": "camera-message"
+        }
+      ]
     },
     {
-      "id": "entry-music", "enabled": false,
-      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
-      "presence": "away", "cooldownSeconds": 600,
-      "actions": [{ "device": "music-player" }]
+      "id": "entry-music",
+      "enabled": false,
+      "cameras": [
+        "CAMERA_SERIAL"
+      ],
+      "events": [
+        "personDetected",
+        "strangerDetected"
+      ],
+      "presence": "away",
+      "cooldownSeconds": 600,
+      "actions": [
+        {
+          "device": "music-player"
+        }
+      ]
     }
-  ]
+  ],
+  "household": {
+    "enabled": false,
+    "pollSeconds": 60,
+    "awayGraceSeconds": 180,
+    "people": [
+      {
+        "id": "person-1",
+        "name": "Person 1",
+        "macs": []
+      },
+      {
+        "id": "person-2",
+        "name": "Person 2",
+        "macs": []
+      }
+    ]
+  }
 }
