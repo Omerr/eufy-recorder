@@ -100,6 +100,14 @@ Convert a phone recording with FFmpeg:
 ffmpeg -i recording.m4a -ac 1 -ar 16000 -c:a aac -b:a 16k -f adts audio/visitor.aac
 ```
 
+With FFmpeg installed on Windows, you can also generate speech from text:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Make-Speech.ps1 -Text "Hello. Is someone there?"
+```
+
+The text is synthesized locally with a Windows voice. The generated audio remains ignored by Git.
+
 The adapter waits for the SDK's playback-completion signal before closing talkback.
 It rejects oversized frames before opening the speaker. A higher average bitrate can
 produce frames beyond the device limit even when the file's average bitrate looks acceptable.

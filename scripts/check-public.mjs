@@ -9,7 +9,7 @@ const messageIndex = process.argv.indexOf('--message');
 const roots = new Set([
   '.gitignore', '.gitattributes', 'LICENSE', 'README.md', 'package.json', 'package-lock.json',
   'tsconfig.json', 'recorder.example.json', 'automation.example.json',
-  'Start-Recorder.ps1', 'Stop-Recorder.ps1', 'Run-Background.ps1', 'Install-Startup.ps1',
+  'Start-Recorder.ps1', 'Stop-Recorder.ps1', 'Run-Background.ps1', 'Install-Startup.ps1', 'Make-Speech.ps1',
 ]);
 const fixtureHash = '838cda29ae2a70671c3e3ee4e56edb12e654b461cddb1aec344434eee6d462bb';
 const allowed = (name) => roots.has(name) ||
