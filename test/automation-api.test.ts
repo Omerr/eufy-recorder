@@ -26,11 +26,15 @@ test('automation API authenticates updates, preserves private recorder settings,
   const abort = new AbortController();
   const engine = new AutomationEngine({ settings: config, presence, execute: async () => { executions++; return 'ok'; }, log: () => {}, signal: abort.signal });
   const token = 'local-test-'.repeat(5);
-  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {} });
+  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {}, yotoChoices: async () => ({
+    players: [{ id: 'example-player', name: 'Example player', online: true }], cards: [{ id: 'example-card', title: 'Example music', uri: 'https://yoto.io/example-card' }],
+  }) });
   t.after(() => { abort.abort(); server.close(); });
   const base = `http://127.0.0.1:${address.port}`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   assert.equal((await fetch(base + '/api/config')).status, 401);
+  assert.equal((await fetch(base + '/api/yoto')).status, 401);
+  assert.equal((await (await fetch(base + '/api/yoto', { headers })).json()).cards[0].title, 'Example music');
   assert.match(await (await fetch(base)).text(), /Eufy events/);
   assert.equal((await (await fetch(base + '/api/state', { headers })).json()).presence.state, 'unknown');
   const preview = await fetch(base + '/api/simulate', { method: 'POST', headers, body: JSON.stringify({ kind: 'personDetected', camera: 'private-camera', presence: 'away', at: '2026-11-20T18:00:00Z' }) });

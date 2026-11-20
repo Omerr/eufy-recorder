@@ -182,10 +182,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Recorder.ps1 yot
 Enter the public client ID, then open the printed authorization URL on the Windows PC.
 Login stores the session outside the repository. Refresh tokens rotate automatically.
 Configure the player ID, card URI, and optional volume in the Yoto device entry.
+The configuration page can load your players and library cards, then save that selection locally.
+Card playback uses a URI in the form `https://yoto.io/CARD_ID`.
 The `tokenEnv` setting can provide an access token for an existing external integration.
 Without that environment variable, the locally saved OAuth session is used.
 
 Playback waits for a player acknowledgment. An unavailable player produces an action failure.
+Existing playback is preserved by default: the action checks playback state before changing volume or starting a card.
+Uncheck **Preserve existing playback** to allow replacing it.
 Yoto actions have a timeout and do not queue commands for a later reconnection.
 Keep the music rule disabled until account setup and a device test succeed.
 
@@ -197,6 +201,7 @@ All API routes require the bearer key. The root page contains only the login UI 
 |---|---|
 | `GET /api/state` | Phone presence and latest detection decisions |
 | `GET /api/config` | Local automation configuration |
+| `GET /api/yoto` | Player and card selection metadata from the connected account |
 | `PUT /api/config` | Validate and save rules and devices |
 | `POST /api/presence` | Report home, away, or unknown |
 | `POST /api/simulate` | Preview a camera event without executing actions |

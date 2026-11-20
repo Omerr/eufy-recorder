@@ -10,7 +10,7 @@ export interface Detection {
 export type AutomationDevice =
   | { type: 'yeelight'; host: string; port?: number }
   | { type: 'eufy-audio'; camera: string; file: string }
-  | { type: 'yoto'; deviceId: string; tokenEnv: string; cardUri: string; volume?: number }
+  | { type: 'yoto'; deviceId: string; tokenEnv: string; cardUri: string; volume?: number; skipIfPlaying?: boolean }
   | { type: 'webhook'; url: string; tokenEnv?: string; body?: Record<string, unknown> };
 export interface AutomationRule {
   id: string;
@@ -85,7 +85,8 @@ export function validateAutomation(value: AutomationConfig): void {
         break;
       case 'yoto':
         if (!nonempty(device.deviceId) || !envName(device.tokenEnv) || !nonempty(device.cardUri) ||
-          (device.volume !== undefined && (!Number.isInteger(device.volume) || device.volume < 0 || device.volume > 100))) {
+          (device.volume !== undefined && (!Number.isInteger(device.volume) || device.volume < 0 || device.volume > 100)) ||
+          (device.skipIfPlaying !== undefined && typeof device.skipIfPlaying !== 'boolean')) {
           throw new Error(`Device ${name}: Yoto device, token environment variable, card URI, and valid volume required.`);
         }
         break;

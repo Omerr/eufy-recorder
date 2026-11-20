@@ -4,6 +4,7 @@ import { readFile, writeFile, rename } from 'node:fs/promises';
 import { AutomationEngine, Presence, automationConfig, type DetectionKind, type PresenceState } from './automation.ts';
 import { controlPage } from './control-page.ts';
 import type { RouterPresence } from './router.ts';
+import type { YotoCatalog } from './yoto-catalog.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -22,6 +23,7 @@ export async function startAutomationApi(options: {
   engine: AutomationEngine; presence: Presence; configFile: string;
   token: string; signal: AbortSignal; log: (message: string) => void;
   router?: RouterPresence;
+  yotoChoices?: (signal: AbortSignal) => Promise<YotoCatalog>;
 }): Promise<Server> {
   if (options.token.length < 32) throw new Error('Automation API token must have at least 32 characters.');
   const binding = options.engine.config().api;
@@ -46,6 +48,9 @@ export async function startAutomationApi(options: {
         reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
+      } else if (request.method === 'GET' && url.pathname === '/api/yoto') {
+        if (!options.yotoChoices) throw new Error('Yoto is not initialized.');
+        reply(200, await options.yotoChoices(AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])));
       } else if (request.method === 'POST' && url.pathname === '/api/presence') {
         if (options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
         const value = await body(request);

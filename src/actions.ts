@@ -9,6 +9,7 @@ import type { Device } from '@mega-yfue/eufy-sdk';
 import { connectAsync } from 'mqtt';
 import type { AutomationDevice } from './automation.ts';
 import { YotoAuth } from './yoto-auth.ts';
+import { yotoCatalog } from './yoto-catalog.ts';
 
 export async function yeelightOn(host: string, port = 55443, signal = AbortSignal.timeout(12_000)): Promise<string> {
   try { return await yeelightAttempt(host, port, signal); }
@@ -133,11 +134,12 @@ export async function cameraAudio(device: Device | undefined, filename: string, 
 
 export async function yotoPlay(
   device: Extract<AutomationDevice, { type: 'yoto' }>, accessToken: string, signal: AbortSignal,
+  connector: typeof connectAsync = connectAsync,
 ): Promise<string> {
   signal.throwIfAborted();
   const id = device.deviceId;
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid Yoto player ID.');
-  const client = await connectAsync('wss://aqrphjqbp3u2z-ats.iot.eu-west-2.amazonaws.com/mqtt', {
+  const client = await connector('wss://aqrphjqbp3u2z-ats.iot.eu-west-2.amazonaws.com/mqtt', {
     username: `${id}?x-amz-customauthorizer-name=PublicJWTAuthorizer`, password: accessToken,
     clientId: `DASH${id}`, port: 443, protocol: 'wss', keepalive: 30,
     ALPNProtocols: ['x-amzn-mqtt-ca'], reconnectPeriod: 0, connectTimeout: 10_000,
@@ -149,7 +151,27 @@ export async function yotoPlay(
   try {
     signal.throwIfAborted();
     const responseTopic = `device/${id}/response`;
-    await client.subscribeAsync(responseTopic);
+    const eventsTopic = `device/${id}/data/events`;
+    await client.subscribeAsync([responseTopic, eventsTopic]);
+    if (device.skipIfPlaying !== false) {
+      const status = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => finish(new Error('Yoto did not report its playback state.')), 7000);
+        const cancelled = () => finish(new Error('Yoto request cancelled.'));
+        const received = (topic: string, bytes: Buffer) => {
+          if (topic !== eventsTopic) return;
+          try { const value = JSON.parse(bytes.toString()); if (typeof value.playbackStatus === 'string') finish(undefined, value.playbackStatus); } catch {}
+        };
+        const finish = (error?: Error, state = '') => {
+          clearTimeout(timer); client.removeListener('message', received); signal.removeEventListener('abort', cancelled);
+          if (error) reject(error); else resolve(state);
+        };
+        client.on('message', received); signal.addEventListener('abort', cancelled, { once: true });
+        if (signal.aborted) { cancelled(); return; }
+        client.publish(`device/${id}/command/events/request`, '{}', { qos: 1 }, (error) => { if (error) finish(error); });
+      });
+      if (status === 'playing') return 'already playing; current playback preserved';
+      if (!['paused', 'stopped'].includes(status)) throw new Error('Yoto playback state is unknown.');
+    }
     const send = async (resource: string, operation: string, body: object): Promise<void> => {
       signal.throwIfAborted();
       const payload = JSON.stringify(body);
@@ -188,6 +210,10 @@ export class Actions {
   private busy = new Set<string>();
   constructor(root: string, stateDir: string, devices: Map<string, Device>) {
     this.root = root; this.devices = devices; this.yoto = new YotoAuth(path.join(stateDir, 'yoto-session.json'));
+  }
+  async yotoChoices(signal: AbortSignal) {
+    const token = process.env.YOTO_ACCESS_TOKEN || await this.yoto.accessToken();
+    return yotoCatalog(token, signal);
   }
   async execute(name: string, device: AutomationDevice, signal: AbortSignal): Promise<string> {
     if (this.busy.has(name)) return 'already handling another event';

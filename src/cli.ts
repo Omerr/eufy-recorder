@@ -334,7 +334,7 @@ async function main(): Promise<void> {
         try {
           automationApi = await startAutomationApi({
             engine: automations, presence: phonePresence, configFile: path.join(root, 'recorder.json'),
-            token: apiToken, signal: abort.signal, log, router: routerPresence,
+            token: apiToken, signal: abort.signal, log, router: routerPresence, yotoChoices: (signal) => actions.yotoChoices(signal),
           });
         } catch (error) {
           // A control API failure must not interrupt security footage recording.

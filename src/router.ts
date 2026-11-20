@@ -224,7 +224,8 @@ export class RouterPresence {
       }
       if (this.settings().enabled && this.current && !this.signal.aborted) {
         this.publish(this.current.state);
-        this.log(`Household presence: ${this.current.state}; ${this.current.reason}`);
+        const members = this.current.people.map((person) => `${person.id}=${person.state}`).join(', ');
+        this.log(`Household presence: ${this.current.state}; ${members}; ${this.current.reason}`);
       }
     })().finally(() => {
       this.pending = undefined;
