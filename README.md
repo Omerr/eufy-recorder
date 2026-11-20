@@ -6,7 +6,10 @@ Camera compatibility and motion notifications still need testing on your account
 
 The recorder opens a live connection when motion arrives and saves a short clip.
 It writes complete MP4 fragments to disk throughout the event.
-The recorder runs on Node.js alone.
+Recording runs on Node.js alone. Optional automations can control lights, camera audio, and music.
+
+See [camera event automations](docs/automations.md) for the configuration page, Android presence,
+Yeelight, camera speech, and Yoto setup.
 
 ## First connection
 

@@ -26,9 +26,10 @@ const localFile = path.resolve('recorder.json');
 if (existsSync(localFile)) {
   const config = JSON.parse(readFileSync(localFile, 'utf8').replace(/^\uFEFF/, ''));
   function visit(value, key = '') {
+    if (/Env$/i.test(key)) return;
     if (Array.isArray(value)) return value.forEach((item) => visit(item, key));
     if (value && typeof value === 'object') return Object.entries(value).forEach(([k, v]) => visit(v, k));
-    if (typeof value === 'string' && value.length >= 6 && /camera|serial|topic|password|token|ssid|mac|deviceId/i.test(key) && !value.startsWith('env:')) {
+    if (typeof value === 'string' && value.length >= 6 && /camera|serial|topic|password|token|ssid|mac|deviceId/i.test(key) && !value.startsWith('env:') && !['CAMERA_SERIAL', 'PLAYER_ID', 'CARD_URI'].includes(value)) {
       privateValues.push(value);
     }
   }

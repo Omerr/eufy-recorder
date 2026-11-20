@@ -13,6 +13,7 @@ async function workspace(t: { after: (fn: () => Promise<void>) => void }) {
   t.after(() => rm(directory, { recursive: true, force: true }));
   await copyFile(path.join(root, 'Start-Recorder.ps1'), path.join(directory, 'Start-Recorder.ps1'));
   await copyFile(path.join(root, 'recorder.example.json'), path.join(directory, 'recorder.example.json'));
+  await copyFile(path.join(root, 'automation.example.json'), path.join(directory, 'automation.example.json'));
   return directory;
 }
 
@@ -71,4 +72,18 @@ test('camera setup confirms country and preserves a previously configured ntfy t
   assert.equal(saved.ntfy.topic, 'keep-this-topic');
   assert.equal(saved.battery.lowPercent, 30);
   assert.match(result.stdout, /Local setup probe finished/);
+});
+
+test('an encrypted automation token survives file newlines and loads into a child process', { skip: process.platform !== 'win32' }, async (t) => {
+  const directory = await workspace(t);
+  let result = launch(directory, 'automation-setup', '');
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  await mkdir(path.join(directory, 'node_modules', '@mega-yfue', 'eufy-sdk'), { recursive: true });
+  await mkdir(path.join(directory, 'src'));
+  await writeFile(path.join(directory, 'src', 'cli.ts'), 'if(process.env.EUFY_AUTOMATION_TOKEN?.length!==64)process.exit(1);console.log("api-token-ready");');
+  result = launch(directory, 'ntfy-test', '');
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /api-token-ready/);
 });

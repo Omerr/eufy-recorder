@@ -1,0 +1,83 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { AutomationEngine, Presence, automationConfig, type AutomationConfig, type Detection } from '../src/automation.ts';
+
+function settings(): AutomationConfig {
+  return automationConfig({
+    enabled: true, timeZone: 'UTC', devices: { lamp: { type: 'yeelight', host: 'light.local' }, voice: { type: 'eufy-audio', camera: 'example-camera', file: 'audio/test.aac' } },
+    rules: [{ id: 'evening', enabled: true, cameras: ['example-camera'], events: ['personDetected', 'strangerDetected'], after: '17:00', presence: 'away', cooldownSeconds: 120, actions: [{ device: 'lamp' }, { device: 'voice' }] }],
+  });
+}
+const detection = (time = '2026-11-20T18:00:00Z'): Detection => ({ kind: 'personDetected', camera: 'example-camera', at: new Date(time) });
+
+test('evening rules require fresh away presence and the configured camera', () => {
+  const presence = new Presence();
+  const engine = new AutomationEngine({ settings: settings(), presence, execute: async () => 'ok', log: () => {}, signal: new AbortController().signal });
+  const now = Date.now();
+  assert.equal(engine.preview(detection(), now)[0].matches, false);
+  presence.update('home', now);
+  assert.equal(engine.preview(detection(), now)[0].matches, false);
+  presence.update('away', now);
+  assert.equal(engine.preview(detection(), now)[0].matches, true);
+  assert.equal(engine.preview(detection('2026-11-20T16:59:00Z'), now)[0].matches, false);
+  assert.equal(engine.preview(detection('2026-11-20T17:00:00Z'), now)[0].matches, true);
+  assert.equal(engine.preview({ ...detection(), camera: 'different-camera' }, now)[0].matches, false);
+  assert.equal(engine.preview(detection(), now + 15 * 60_000 + 1)[0].matches, false);
+});
+
+test('time windows use the selected time zone including daylight saving and overnight windows', () => {
+  const config = settings(); config.timeZone = 'Europe/London'; config.rules[0].presence = 'any';
+  const engine = new AutomationEngine({ settings: config, presence: new Presence(), execute: async () => 'ok', log: () => {}, signal: new AbortController().signal });
+  assert.equal(engine.preview(detection('2026-07-20T16:30:00Z'))[0].matches, true);
+  assert.equal(engine.preview(detection('2026-01-20T16:30:00Z'))[0].matches, false);
+  config.rules[0].after = '22:00'; config.rules[0].before = '06:00'; engine.configure(config);
+  assert.equal(engine.preview(detection('2026-01-20T23:30:00Z'))[0].matches, true);
+  assert.equal(engine.preview(detection('2026-01-21T05:59:00Z'))[0].matches, true);
+  assert.equal(engine.preview(detection('2026-01-21T06:00:00Z'))[0].matches, false);
+});
+
+test('duplicate person and stranger detections share one cooldown', async () => {
+  const presence = new Presence(); let now = Date.now(); presence.update('away', now);
+  const calls: string[] = [];
+  const engine = new AutomationEngine({ settings: settings(), presence, execute: async (name) => { calls.push(name); return 'ok'; }, log: () => {}, signal: new AbortController().signal, now: () => now });
+  engine.handle(detection());
+  engine.handle({ ...detection(), kind: 'strangerDetected' });
+  await engine.flush();
+  assert.deepEqual(calls, ['lamp', 'voice']);
+  engine.handle(detection()); await engine.flush();
+  assert.equal(calls.length, 2);
+  now += 121_000;
+  engine.handle(detection()); await engine.flush();
+  assert.equal(calls.length, 4);
+});
+
+test('returning home cancels the active action and prevents later actions', async () => {
+  const presence = new Presence(); presence.update('away');
+  const calls: string[] = []; let cancelled = false;
+  const engine = new AutomationEngine({ settings: settings(), presence, log: () => {}, signal: new AbortController().signal,
+    execute: (name, _device, signal) => {
+      calls.push(name);
+      return new Promise((resolve) => signal.addEventListener('abort', () => { cancelled = true; resolve('cancelled'); }, { once: true }));
+    },
+  });
+  engine.handle(detection());
+  presence.update('home'); engine.presenceChanged();
+  await engine.flush();
+  assert.ok(cancelled);
+  assert.deepEqual(calls, ['lamp']);
+});
+
+test('preview can simulate away without changing actual presence or executing actions', () => {
+  const presence = new Presence(); let executions = 0;
+  const engine = new AutomationEngine({ settings: settings(), presence, execute: async () => { executions++; return 'ok'; }, log: () => {}, signal: new AbortController().signal });
+  assert.equal(engine.preview(detection(), Date.now(), 'away')[0].matches, true);
+  assert.equal(presence.snapshot(15).state, 'unknown');
+  assert.equal(executions, 0);
+});
+
+test('unknown device names and invalid clocks are rejected', () => {
+  const config = settings(); config.rules[0].after = '25:00';
+  assert.throws(() => automationConfig(config), /Invalid automation rule/);
+  config.rules[0].after = '17:00'; config.rules[0].actions = [{ device: 'missing' }];
+  assert.throws(() => automationConfig(config), /Invalid automation rule/);
+});

@@ -11,6 +11,11 @@ import { BatteryMonitor, batteryPercent, defaultBattery, validateBattery, type B
 import { publishNtfy, validateNtfy, type NtfyConfig } from './ntfy.ts';
 import { defaultRetention, pruneRecordings, validateRetention, type RetentionConfig } from './retention.ts';
 import { acquireInstance, type InstanceLock } from './instance.ts';
+import { AutomationEngine, Presence, automationConfig, type AutomationConfig } from './automation.ts';
+import { Actions } from './actions.ts';
+import { startAutomationApi } from './automation-api.ts';
+import { YotoAuth } from './yoto-auth.ts';
+import type { Server } from 'node:http';
 
 interface Config {
   countryCode: string;
@@ -22,6 +27,7 @@ interface Config {
   battery: BatteryConfig;
   ntfy: NtfyConfig;
   retention: RetentionConfig;
+  automations: AutomationConfig;
 }
 
 const log = (message: string) => console.log(`${new Date().toISOString()} ${message}`);
@@ -76,13 +82,14 @@ async function config(): Promise<Config> {
   validateNtfy(value.ntfy);
   value.retention = { ...defaultRetention, ...value.retention };
   validateRetention(value.retention);
+  value.automations = automationConfig(value.automations);
   value.outputDir = path.resolve(root, value.outputDir);
   return value;
 }
 
 async function main(): Promise<void> {
   if (command === 'help' || command === '--help') {
-    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | check');
+    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | automation-setup | automation-info | yoto-setup | check');
     return;
   }
   const [major, minor] = process.versions.node.split('.').map(Number);
@@ -96,8 +103,12 @@ async function main(): Promise<void> {
     console.log('No camera login attempted.');
     return;
   }
-  if (!['list', 'events', 'record', 'watch', 'battery', 'ntfy-test'].includes(command)) throw new Error(`Unknown command: ${command}`);
+  if (!['list', 'events', 'record', 'watch', 'battery', 'ntfy-test', 'yoto-login'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const settings = await config();
+  if (command === 'yoto-login') {
+    await new YotoAuth(path.join(stateDir, 'yoto-session.json')).login(process.env.YOTO_CLIENT_ID || '', log);
+    return;
+  }
   if (command === 'ntfy-test') {
     await publishNtfy(settings.ntfy, {
       title: 'Eufy recorder notification test',
@@ -142,6 +153,13 @@ async function main(): Promise<void> {
   const abort = new AbortController();
   const active = new Map<string, { window: RecordingWindow; done: Promise<void> }>();
   const devices = new Map<string, Device>();
+  const phonePresence = new Presence();
+  const actions = new Actions(root, stateDir, devices);
+  const automations = new AutomationEngine({
+    settings: settings.automations, presence: phonePresence,
+    execute: (name, device, signal) => actions.execute(name, device, signal), log, signal: abort.signal,
+  });
+  let automationApi: Server | undefined;
   let instance: InstanceLock | undefined;
   let stopTimer: ReturnType<typeof setInterval> | undefined;
   let batteryMonitor: BatteryMonitor | undefined;
@@ -210,6 +228,7 @@ async function main(): Promise<void> {
       if (!sn) return;
       log(`${kind}: ${devices.get(sn)?.name || sn}`);
       if (command !== 'watch' || !accepting || abort.signal.aborted || !settings.cameras.includes(sn)) return;
+      automations.handle({ kind, camera: sn, at: new Date() });
       void record(sn, kind, settings.clipSeconds).catch((error: Error) => log(`Recording failed: ${error.message}`));
     });
   }
@@ -293,6 +312,20 @@ async function main(): Promise<void> {
       retentionTimer = setInterval(() => { void cleanRecordings(); }, 60 * 60_000);
       log(`Recording retention: ${settings.retention.maxDays} days, ${settings.retention.maxGB} GB, oldest completed clips removed first.`);
       accepting = true;
+      const apiToken = process.env[settings.automations.api.tokenEnv];
+      if (apiToken) {
+        try {
+          automationApi = await startAutomationApi({
+            engine: automations, presence: phonePresence, configFile: path.join(root, 'recorder.json'),
+            token: apiToken, signal: abort.signal, log,
+          });
+        } catch (error) {
+          // A control API failure must not interrupt security footage recording.
+          log(`Automation API unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else if (settings.automations.enabled) {
+        log('Automations are enabled but the presence API token is missing; presence remains unknown.');
+      }
       if (batteryMonitor) {
         for (const device of devices.values()) await sampleBattery(device);
         batteryTimer = setInterval(() => {
@@ -320,6 +353,8 @@ async function main(): Promise<void> {
     if (retentionTimer) clearInterval(retentionTimer);
     await cleanup;
     await batteryMonitor?.flush();
+    automationApi?.closeAllConnections();
+    await automations.flush();
     await Promise.allSettled([...active.values()].map((item) => item.done));
     await client.disconnect();
     await instance?.release();

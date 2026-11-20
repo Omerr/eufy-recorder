@@ -1,0 +1,35 @@
+{
+  "enabled": false,
+  "timeZone": "UTC",
+  "presenceMaxAgeMinutes": 15,
+  "api": {
+    "host": "127.0.0.1",
+    "port": 8788,
+    "tokenEnv": "EUFY_AUTOMATION_TOKEN"
+  },
+  "devices": {
+    "entry-light": { "type": "yeelight", "host": "light.local", "port": 55443 },
+    "camera-message": { "type": "eufy-audio", "camera": "CAMERA_SERIAL", "file": "audio/visitor.aac" },
+    "music-player": { "type": "yoto", "deviceId": "PLAYER_ID", "tokenEnv": "YOTO_ACCESS_TOKEN", "cardUri": "CARD_URI", "volume": 20 }
+  },
+  "rules": [
+    {
+      "id": "evening-entry-light", "enabled": false,
+      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
+      "after": "17:00", "presence": "away", "cooldownSeconds": 120,
+      "actions": [{ "device": "entry-light" }]
+    },
+    {
+      "id": "entry-voice", "enabled": false,
+      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
+      "presence": "away", "cooldownSeconds": 300,
+      "actions": [{ "device": "camera-message" }]
+    },
+    {
+      "id": "entry-music", "enabled": false,
+      "cameras": ["CAMERA_SERIAL"], "events": ["personDetected", "strangerDetected"],
+      "presence": "away", "cooldownSeconds": 600,
+      "actions": [{ "device": "music-player" }]
+    }
+  ]
+}

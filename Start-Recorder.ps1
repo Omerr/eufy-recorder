@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'check')]
+    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'automation-setup', 'automation-info', 'yoto-setup', 'check')]
     [string]$Mode = 'list',
     [string]$Camera = '',
     [ValidateRange(5, 120)]
@@ -18,6 +18,7 @@ Set-Location $PSScriptRoot
 $stateDir = Join-Path $env:LOCALAPPDATA 'EufyRecorder'
 $credentialFile = Join-Path $stateDir 'credential.xml'
 $ntfyTokenFile = Join-Path $stateDir 'ntfy-token.txt'
+$automationTokenFile = Join-Path $stateDir 'automation-token.txt'
 $configFile = Join-Path $PSScriptRoot 'recorder.json'
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -54,11 +55,43 @@ if ($Mode -eq 'setup') {
 }
 
 if (-not (Test-Path -LiteralPath $configFile)) {
-    if ($Mode -in @('ntfy-setup', 'ntfy-test')) {
+    if ($Mode -in @('ntfy-setup', 'ntfy-test', 'automation-setup')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'recorder.example.json') -Destination $configFile
     } else {
         throw 'Run .\Start-Recorder.ps1 setup to connect your eufy account first.'
     }
+}
+if ($Mode -eq 'automation-setup') {
+    $config = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
+    if (-not $config.automations) {
+        $automation = Get-Content (Join-Path $PSScriptRoot 'automation.example.json') -Raw | ConvertFrom-Json
+        $automation.timeZone = (& node -p 'Intl.DateTimeFormat().resolvedOptions().timeZone').Trim()
+        if ($config.cameras.Count -eq 1) {
+            foreach ($rule in $automation.rules) { $rule.cameras = @($config.cameras[0]) }
+            $automation.devices.'camera-message'.camera = $config.cameras[0]
+        }
+        $config | Add-Member -NotePropertyName automations -NotePropertyValue $automation -Force
+        $config | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $configFile -Encoding UTF8
+    }
+    New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $automationTokenFile)) {
+        $random = New-Object byte[] 32
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $generator.GetBytes($random) } finally { $generator.Dispose() }
+        $text = ([BitConverter]::ToString($random)).Replace('-', '').ToLowerInvariant()
+        ConvertTo-SecureString $text -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -LiteralPath $automationTokenFile -Encoding UTF8
+    }
+    Write-Host 'Automation settings and an encrypted API token are ready. Restart the recorder to start the API.'
+    Write-Host 'Use automation-info locally to display the phone setup token. Rules remain disabled until configured.'
+    exit 0
+}
+if ($Mode -eq 'automation-info') {
+    if (-not (Test-Path -LiteralPath $automationTokenFile)) { throw 'Run automation-setup first.' }
+    $secureToken = (Get-Content -LiteralPath $automationTokenFile -Raw).Trim() | ConvertTo-SecureString
+    $tokenCredential = New-Object System.Management.Automation.PSCredential('automation', $secureToken)
+    Write-Host ('Authorization: Bearer ' + $tokenCredential.GetNetworkCredential().Password)
+    Write-Host 'Keep this value on your own devices. It authorizes home automation requests.'
+    exit 0
 }
 if ($Mode -eq 'ntfy-setup') {
     $config = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
@@ -84,7 +117,7 @@ if ($Mode -eq 'ntfy-setup') {
     Write-Host 'Then run .\Start-Recorder.ps1 ntfy-test to send a test notification.'
     exit 0
 }
-if ($Mode -ne 'ntfy-test' -and -not (Test-Path -LiteralPath $credentialFile)) {
+if ($Mode -notin @('ntfy-test', 'yoto-setup') -and -not (Test-Path -LiteralPath $credentialFile)) {
     throw 'Run .\Start-Recorder.ps1 setup first.'
 }
 if (-not (Test-Path node_modules/@mega-yfue/eufy-sdk)) {
@@ -95,14 +128,25 @@ $previousEmail = $env:EUFY_EMAIL
 $previousPassword = $env:EUFY_PASSWORD
 $previousState = $env:EUFY_STATE_DIR
 $previousNtfyToken = $env:NTFY_TOKEN
+$previousAutomationToken = $env:EUFY_AUTOMATION_TOKEN
+$previousYotoClient = $env:YOTO_CLIENT_ID
 try {
-    if ($Mode -ne 'ntfy-test') {
+    if ($Mode -notin @('ntfy-test', 'yoto-setup')) {
         $credential = Import-Clixml -LiteralPath $credentialFile
         $env:EUFY_EMAIL = $credential.UserName
         $env:EUFY_PASSWORD = $credential.GetNetworkCredential().Password
     }
+    if (Test-Path -LiteralPath $automationTokenFile) {
+        $secureToken = (Get-Content -LiteralPath $automationTokenFile -Raw).Trim() | ConvertTo-SecureString
+        $tokenCredential = New-Object System.Management.Automation.PSCredential('automation', $secureToken)
+        $env:EUFY_AUTOMATION_TOKEN = $tokenCredential.GetNetworkCredential().Password
+    }
+    if ($Mode -eq 'yoto-setup') {
+        $env:YOTO_CLIENT_ID = (Read-Host 'Yoto public OAuth client ID').Trim()
+        $Mode = 'yoto-login'
+    }
     if (Test-Path -LiteralPath $ntfyTokenFile) {
-        $secureToken = Get-Content -LiteralPath $ntfyTokenFile -Raw | ConvertTo-SecureString
+        $secureToken = (Get-Content -LiteralPath $ntfyTokenFile -Raw).Trim() | ConvertTo-SecureString
         $tokenCredential = New-Object System.Management.Automation.PSCredential('ntfy', $secureToken)
         $env:NTFY_TOKEN = $tokenCredential.GetNetworkCredential().Password
     }
@@ -117,5 +161,7 @@ try {
     $env:EUFY_PASSWORD = $previousPassword
     $env:EUFY_STATE_DIR = $previousState
     $env:NTFY_TOKEN = $previousNtfyToken
+    $env:EUFY_AUTOMATION_TOKEN = $previousAutomationToken
+    $env:YOTO_CLIENT_ID = $previousYotoClient
 }
 exit $result

@@ -15,3 +15,4 @@ exports/
 *.pem
 *.key
 *.pfx
+*.tmp
