@@ -62,6 +62,10 @@ Select your home Wi-Fi networks inside MacroDroid; the recorder needs no SSID or
 
 Use an HTTP Request action with these settings:
 
+The configuration page also provides ready-to-copy requests under **Set up MacroDroid**.
+In MacroDroid's HTTP Request action, use its menu's **Import from cURL string** option.
+The page fills in your endpoint and key locally after you sign in.
+
 ```text
 Method: POST
 URL: http://WINDOWS_TAILSCALE_ADDRESS:8788/api/presence
@@ -77,6 +81,8 @@ Create these macros:
 3. Every five minutes, report the current state. Send `home` on a home network and `away` after leaving.
 
 If Android cannot determine the Wi-Fi state, send `unknown`.
+Grant location permission all the time and keep Android Location enabled for reliable SSID detection.
+If Location is disabled, the heartbeat must send `unknown`.
 Confirm the home and away reports on the configuration page before enabling rules.
 The default report expiry is 15 minutes and can be changed in the configuration.
 Wi-Fi presence describes network membership; it is an approximation of physical presence.

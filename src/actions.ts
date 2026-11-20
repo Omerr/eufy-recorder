@@ -81,35 +81,54 @@ export function validateCameraAudio(bytes: Buffer): number {
   return frames;
 }
 
-async function cameraAudio(device: Device | undefined, filename: string, signal: AbortSignal): Promise<string> {
-  const camera = device?.camera?.();
-  if (!camera?.talkback) throw new Error('This camera has no verified talkback path.');
-  const info = await stat(filename);
-  if (!info.isFile() || info.size === 0 || info.size > 2_000_000) throw new Error('Choose a short AAC audio file.');
-  validateCameraAudio(await readFile(filename));
-  signal.throwIfAborted();
-  const opening = camera.talkback();
-  void opening.then((talk) => { if (signal.aborted) void talk.stop().catch(() => {}); }, () => {});
-  const talk = await new Promise<Awaited<typeof opening>>((resolve, reject) => {
+async function openUntilAborted<T>(opening: Promise<T>, signal: AbortSignal, close: (value: T) => void | Promise<void>): Promise<T> {
+  void opening.then((value) => { if (signal.aborted) void Promise.resolve(close(value)).catch(() => {}); }, () => {});
+  return new Promise<T>((resolve, reject) => {
     const cancelled = () => reject(new Error('Camera audio cancelled.'));
     if (signal.aborted) { cancelled(); return; }
     signal.addEventListener('abort', cancelled, { once: true });
     void opening.then((value) => { signal.removeEventListener('abort', cancelled); resolve(value); }, (error) => { signal.removeEventListener('abort', cancelled); reject(error); });
   });
-  const aborted = () => { void talk.stop().catch(() => {}); };
-  signal.addEventListener('abort', aborted, { once: true });
+}
+
+export async function cameraAudio(device: Device | undefined, filename: string, signal: AbortSignal): Promise<string> {
+  const camera = device?.camera?.();
+  if (!camera?.talkback || !camera.live) throw new Error('This camera has no verified talkback path.');
+  const info = await stat(filename);
+  if (!info.isFile() || info.size === 0 || info.size > 2_000_000) throw new Error('Choose a short AAC audio file.');
+  validateCameraAudio(await readFile(filename));
+  signal.throwIfAborted();
+  const live = await openUntilAborted(camera.live(), signal, (value) => value.stop());
   try {
-    signal.throwIfAborted();
-    if (talk.codec !== 'aac-lc') throw new Error('This audio adapter requires an AAC-LC speaker.');
-    let finished = false;
-    const done = new Promise<void>((resolve, reject) => {
-      talk.on('finished', () => { finished = true; resolve(); });
-      talk.on('error', reject);
-      talk.on('stop', () => { if (!finished) reject(new Error('Camera audio stopped before completion.')); });
+    // A transport acknowledgment can precede an audible media session. Start the
+    // reverse audio path only after this camera has actually sent a video keyframe.
+    await new Promise<void>((resolve, reject) => {
+      const cancelled = () => finish(new Error('Camera warm-up cancelled.'));
+      const finish = (error?: Error) => {
+        signal.removeEventListener('abort', cancelled);
+        if (error) reject(error); else resolve();
+      };
+      live.on('video', (frame) => { if (frame.keyframe) finish(); });
+      live.on('error', (error) => finish(error));
+      live.on('stop', () => finish(new Error('Camera media stopped before playback.')));
+      if (signal.aborted) cancelled(); else signal.addEventListener('abort', cancelled, { once: true });
     });
-    await Promise.all([pipeline(createReadStream(filename), talk.writable(), { signal }), done]);
-    return 'audio sent to camera';
-  } finally { signal.removeEventListener('abort', aborted); await talk.stop(); }
+    const talk = await openUntilAborted(camera.talkback(), signal, (value) => value.stop());
+    const aborted = () => { void talk.stop().catch(() => {}); };
+    signal.addEventListener('abort', aborted, { once: true });
+    try {
+      signal.throwIfAborted();
+      if (talk.codec !== 'aac-lc') throw new Error('This audio adapter requires an AAC-LC speaker.');
+      let finished = false;
+      const done = new Promise<void>((resolve, reject) => {
+        talk.on('finished', () => { finished = true; resolve(); });
+        talk.on('error', reject);
+        talk.on('stop', () => { if (!finished) reject(new Error('Camera audio stopped before completion.')); });
+      });
+      await Promise.all([pipeline(createReadStream(filename), talk.writable(), { signal }), done]);
+      return 'audio sent to camera';
+    } finally { signal.removeEventListener('abort', aborted); await talk.stop(); }
+  } finally { live.stop(); }
 }
 
 export async function yotoPlay(
