@@ -9,6 +9,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# PowerShell 7 parents can pass Core module paths to Windows PowerShell 5.1.
+# Resolve the native security module first for DPAPI and SecureString cmdlets.
+if ($PSVersionTable.PSVersion.Major -eq 5) {
+    $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
+}
 Set-Location $PSScriptRoot
 $stateDir = Join-Path $env:LOCALAPPDATA 'EufyRecorder'
 $credentialFile = Join-Path $stateDir 'credential.xml'
