@@ -41,7 +41,7 @@ export async function startAutomationApi(options: {
     try {
       const url = new URL(request.url || '/', 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status() });
+        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus() });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
       } else if (request.method === 'POST' && url.pathname === '/api/presence') {
@@ -65,6 +65,13 @@ export async function startAutomationApi(options: {
         const value = await body(request);
         if (typeof value.device !== 'string') throw new Error('Supply a device name.');
         reply(200, { result: await options.engine.testDevice(value.device) });
+      } else if (request.method === 'POST' && url.pathname === '/api/speaker-test') {
+        const value = await body(request);
+        if (typeof value.device !== 'string') throw new Error('Supply a camera audio device name.');
+        reply(200, options.engine.armSpeakerTest(value.device, value.expiresInSeconds === undefined ? 300 : Number(value.expiresInSeconds)));
+      } else if (request.method === 'DELETE' && url.pathname === '/api/speaker-test') {
+        options.engine.cancelSpeakerTest();
+        reply(200, { cancelled: true });
       } else if (request.method === 'PUT' && url.pathname === '/api/config') {
         const value = automationConfig(await body(request));
         if (value.api.host !== binding.host || value.api.port !== binding.port || value.api.tokenEnv !== binding.tokenEnv) throw new Error('Changing API binding or token settings requires editing recorder.json and restarting.');

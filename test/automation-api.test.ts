@@ -18,7 +18,7 @@ test('automation API authenticates updates, preserves private recorder settings,
   await writeFile(configFile, JSON.stringify({ cameras: ['private-camera'], ntfy: { topic: 'private-test-topic' } }));
   const config = automationConfig({
     enabled: true, api: { host: '127.0.0.1', port: address.port, tokenEnv: 'EXAMPLE_TOKEN' },
-    devices: { lamp: { type: 'yeelight', host: 'light.local' } },
+    devices: { lamp: { type: 'yeelight', host: 'light.local' }, voice: { type: 'eufy-audio', camera: 'private-camera', file: 'audio/test.aac' } },
     rules: [{ id: 'evening', enabled: true, cameras: ['private-camera'], events: ['personDetected'], after: '17:00', presence: 'away', cooldownSeconds: 120, actions: [{ device: 'lamp' }] }],
   });
   let executions = 0;
@@ -41,6 +41,14 @@ test('automation API authenticates updates, preserves private recorder settings,
   assert.equal(executions, 0);
   assert.equal((await fetch(base + '/api/test', { method: 'POST', headers, body: '{"device":"lamp"}' })).status, 200);
   assert.equal(executions, 1);
+  assert.equal((await fetch(base + '/api/speaker-test', { method: 'POST', body: '{"device":"voice"}' })).status, 401);
+  const armed = await fetch(base + '/api/speaker-test', { method: 'POST', headers, body: '{"device":"voice","expiresInSeconds":30}' });
+  assert.equal(armed.status, 200);
+  assert.equal((await armed.json()).state, 'armed');
+  assert.equal(executions, 1);
+  const cancelled = await fetch(base + '/api/speaker-test', { method: 'DELETE', headers });
+  assert.equal(cancelled.status, 200);
+  assert.equal(engine.speakerTestStatus()?.state, 'cancelled');
   assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: '{"state":"away"}' })).status, 200);
   assert.equal(presence.snapshot(15).state, 'away');
   config.rules[0].after = '18:00';

@@ -126,6 +126,13 @@ function inTimeWindow(rule: AutomationRule, timeZone: string, at: Date): boolean
 }
 
 export interface RuleDecision { id: string; matches: boolean; reason: string; devices: string[] }
+interface SpeakerTest {
+  device: string;
+  camera: string;
+  expiresAt: number;
+  state: 'armed' | 'running' | 'sent' | 'failed' | 'expired' | 'cancelled';
+  result?: string;
+}
 export class AutomationEngine {
   private lastRun = new Map<string, number>();
   private active = new Set<string>();
@@ -138,6 +145,8 @@ export class AutomationEngine {
   private clock: () => number;
   private running = new Map<string, { event: Detection; controller: AbortController }>();
   private lastEvent: { camera: string; kind: DetectionKind; at: string; decisions: RuleDecision[] } | null = null;
+  private speakerTest: SpeakerTest | null = null;
+  private speakerTestController?: AbortController;
 
   constructor(options: {
     settings: AutomationConfig; presence: Presence;
@@ -151,6 +160,24 @@ export class AutomationEngine {
   configure(settings: AutomationConfig): void { validateAutomation(settings); this.settings = settings; this.presenceChanged(); }
   config(): AutomationConfig { return this.settings; }
   status() { return this.lastEvent; }
+  speakerTestStatus(now = this.clock()): SpeakerTest | null {
+    if (this.speakerTest?.state === 'armed' && now >= this.speakerTest.expiresAt) this.speakerTest.state = 'expired';
+    return this.speakerTest ? { ...this.speakerTest } : null;
+  }
+  armSpeakerTest(name: string, seconds = 300): SpeakerTest {
+    const device = this.settings.devices[name];
+    if (device?.type !== 'eufy-audio') throw new Error('Choose a camera audio device for this test.');
+    if (!Number.isInteger(seconds) || seconds < 15 || seconds > 300) throw new Error('Test expiry must be from 15 to 300 seconds.');
+    if (this.signal.aborted) throw new Error('Recorder is stopping.');
+    if (this.speakerTest?.state === 'running') throw new Error('A speaker test is already playing.');
+    this.speakerTest = { device: name, camera: device.camera, expiresAt: this.clock() + seconds * 1000, state: 'armed' };
+    this.log(`Speaker test: ${name} armed for the next person detection (${seconds} seconds).`);
+    return { ...this.speakerTest };
+  }
+  cancelSpeakerTest(): void {
+    this.speakerTestController?.abort();
+    if (this.speakerTest && ['armed', 'running'].includes(this.speakerTest.state)) this.speakerTest.state = 'cancelled';
+  }
   async testDevice(name: string): Promise<string> {
     const device = this.settings.devices[name];
     if (!device) throw new Error('Unknown device.');
@@ -172,6 +199,28 @@ export class AutomationEngine {
     });
   }
   handle(event: Detection, now = this.clock()): void {
+    const test = this.speakerTestStatus(now);
+    if (!this.signal.aborted && test?.state === 'armed' && test.camera === event.camera &&
+      ['personDetected', 'strangerDetected'].includes(event.kind)) {
+      const current = this.speakerTest!;
+      current.state = 'running'; // Consume before awaiting; duplicate events cannot play it twice.
+      const device = this.settings.devices[current.device];
+      const controller = new AbortController();
+      this.speakerTestController = controller;
+      const job = (async () => {
+        try {
+          if (device?.type !== 'eufy-audio' || device.camera !== current.camera) throw new Error('Speaker configuration changed.');
+          this.log(`Speaker test: person detected; playing ${current.device}.`);
+          current.result = await this.execute(current.device, device, AbortSignal.any([this.signal, controller.signal, AbortSignal.timeout(30_000)]));
+          if (current.state === 'running') current.state = 'sent';
+          this.log(`Speaker test: ${current.state}; ${current.result}`);
+        } catch {
+          if (current.state === 'running') { current.state = 'failed'; current.result = 'Camera playback failed; inspect the device connection.'; }
+          this.log(`Speaker test: ${current.state}.`);
+        }
+      })().finally(() => { this.pending.delete(job); if (this.speakerTest === current) this.speakerTestController = undefined; });
+      this.pending.add(job);
+    }
     const decisions = this.preview(event, now);
     this.lastEvent = { camera: event.camera, kind: event.kind, at: event.at.toISOString(), decisions };
     for (const decision of decisions) {

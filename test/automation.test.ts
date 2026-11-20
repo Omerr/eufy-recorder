@@ -81,3 +81,33 @@ test('unknown device names and invalid clocks are rejected', () => {
   config.rules[0].after = '17:00'; config.rules[0].actions = [{ device: 'missing' }];
   assert.throws(() => automationConfig(config), /Invalid automation rule/);
 });
+
+test('an armed speaker test plays once on the selected camera while normal away-only rules remain blocked', async () => {
+  const presence = new Presence(); presence.update('home');
+  const config = settings(); config.enabled = false;
+  const calls: string[] = [];
+  const engine = new AutomationEngine({ settings: config, presence, execute: async (name) => { calls.push(name); return 'audio sent'; }, log: () => {}, signal: new AbortController().signal });
+  engine.armSpeakerTest('voice');
+  engine.handle({ ...detection(), camera: 'another-camera' });
+  engine.handle({ ...detection(), kind: 'motion' });
+  assert.equal(calls.length, 0);
+  engine.handle(detection()); engine.handle({ ...detection(), kind: 'strangerDetected' });
+  await engine.flush();
+  assert.deepEqual(calls, ['voice']);
+  assert.equal(engine.speakerTestStatus()?.state, 'sent');
+  assert.equal(engine.config().enabled, false);
+  assert.equal(presence.snapshot(15).state, 'home');
+});
+
+test('speaker tests expire and can be cancelled without changing rules', async () => {
+  let now = Date.now();
+  const calls: string[] = [];
+  const engine = new AutomationEngine({ settings: settings(), presence: new Presence(), execute: async (name) => { calls.push(name); return 'ok'; }, log: () => {}, signal: new AbortController().signal, now: () => now });
+  engine.armSpeakerTest('voice', 15); now += 15_000;
+  engine.handle(detection()); await engine.flush();
+  assert.equal(calls.length, 0); assert.equal(engine.speakerTestStatus()?.state, 'expired');
+  engine.armSpeakerTest('voice'); engine.cancelSpeakerTest();
+  engine.handle(detection()); await engine.flush();
+  assert.equal(calls.length, 0); assert.equal(engine.speakerTestStatus()?.state, 'cancelled');
+  assert.throws(() => engine.armSpeakerTest('lamp'), /camera audio/);
+});

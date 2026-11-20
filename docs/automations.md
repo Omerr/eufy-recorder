@@ -123,6 +123,11 @@ An automatic speech rule plays its clip once and respects the rule's cooldown.
 
 The configuration page's device-test button runs a selected action immediately.
 This includes audible playback and applies outside automatic time and presence conditions.
+For an audible walk-through test, select a camera audio device and choose
+**Play on next person detection**. This arms one playback on that camera for five minutes.
+You can then walk into view. The one-time test bypasses automatic time and presence conditions.
+It leaves the normal rules unchanged, ignores duplicate detections, and expires if unused.
+Use **Cancel speaker test** to disarm it or stop its playback.
 
 ## Yoto
 
@@ -157,6 +162,8 @@ All API routes require the bearer key. The root page contains only the login UI 
 | `POST /api/presence` | Report home, away, or unknown |
 | `POST /api/simulate` | Preview a camera event without executing actions |
 | `POST /api/test` | Run one configured device action immediately |
+| `POST /api/speaker-test` | Arm one speaker playback on the next person detection |
+| `DELETE /api/speaker-test` | Cancel the one-time speaker test |
 
 Simulation accepts `kind`, `camera`, an optional ISO timestamp `at`, and an optional presence override.
 Overrides affect the preview only. They leave actual phone presence unchanged.
