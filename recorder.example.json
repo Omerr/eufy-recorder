@@ -1,0 +1,24 @@
+{
+  "countryCode": "US",
+  "cameras": [],
+  "outputDir": "recordings",
+  "clipSeconds": 30,
+  "maxClipSeconds": 120,
+  "firstFragmentTimeoutSeconds": 25,
+  "battery": {
+    "enabled": true,
+    "checkIntervalMinutes": 30,
+    "lowPercent": 30,
+    "criticalPercent": 10,
+    "recoverPercent": 35,
+    "reminderHours": 24
+  },
+  "ntfy": {
+    "server": "https://ntfy.sh",
+    "topic": ""
+  },
+  "retention": {
+    "maxDays": 14,
+    "maxGB": 10
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+state/
+recordings/
+recorder.json
+.env
+.env.*
+!.env.example
+*.log
+*.local.json
+private/
+audio/
+exports/
+*.zip
+*.xml
+*.pem
+*.key
+*.pfx
