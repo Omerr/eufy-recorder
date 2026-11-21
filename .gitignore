@@ -16,3 +16,4 @@ exports/
 *.key
 *.pfx
 *.tmp
+*.mdr

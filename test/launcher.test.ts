@@ -106,6 +106,19 @@ test('Yoto setup dispatches its internal login command without changing the vali
   assert.match(result.stdout, /yoto-login-dispatched/);
 });
 
+test('sleep widget export loads its API key without requiring camera credentials', { skip: process.platform !== 'win32' }, async (t) => {
+  const directory = await workspace(t);
+  const setup = launch(directory, 'automation-setup', '');
+  assert.equal(setup.status, 0, setup.stderr);
+  await mkdir(path.join(directory, 'node_modules', '@mega-yfue', 'eufy-sdk'), { recursive: true });
+  await mkdir(path.join(directory, 'src'));
+  await writeFile(path.join(directory, 'src', 'cli.ts'), 'if(process.argv[2]!=="sleep-widget"||process.env.EUFY_AUTOMATION_TOKEN?.length!==64||process.env.EUFY_EMAIL)process.exit(1);console.log("sleep-export-dispatched");');
+  const result = launch(directory, 'sleep-widget', '$env:EUFY_EMAIL=$null; $env:EUFY_PASSWORD=$null;');
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /sleep-export-dispatched/);
+});
+
 test('readiness queries the running API without camera credentials and reports blockers', { skip: process.platform !== 'win32' }, async (t) => {
   const directory = await workspace(t);
   const setup = launch(directory, 'automation-setup', '');

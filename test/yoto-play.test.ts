@@ -4,6 +4,24 @@ import { EventEmitter } from 'node:events';
 import type { connectAsync } from 'mqtt';
 import { yotoPlay } from '../src/actions.ts';
 
+test('manual sleep playback replaces other audio while leaving volume untouched', async () => {
+  const commands: string[] = [];
+  const client = Object.assign(new EventEmitter(), {
+    subscribeAsync: async () => [], endAsync: async () => {},
+    publish: (topic: string, payload: string, _options: unknown, callback?: (error?: Error) => void) => {
+      commands.push(topic); callback?.();
+      queueMicrotask(() => {
+        if (topic.endsWith('/events/request')) client.emit('message', 'device/example-player/data/events', Buffer.from('{"playbackStatus":"playing"}'));
+        if (topic.endsWith('/card/start')) client.emit('message', 'device/example-player/response', Buffer.from(JSON.stringify({ status: { 'card-play': 'OK', req_body: payload } })));
+      });
+    },
+  });
+  const connector = (async () => client) as unknown as typeof connectAsync;
+  const result = await yotoPlay({ type: 'yoto', deviceId: 'example-player', tokenEnv: 'EXAMPLE_TOKEN', cardUri: 'https://yoto.io/example-sleep', skipIfPlaying: false }, 'example-token', AbortSignal.timeout(1000), connector);
+  assert.match(result, /acknowledged/);
+  assert.deepEqual(commands, ['device/example-player/command/events/request', 'device/example-player/command/card/start']);
+});
+
 for (const firmware of [false, true]) for (const state of ['playing', 'stopped', 'unknown']) {
   test(`Yoto handles ${state} playback with ${firmware ? "firmware" : "documented"} acknowledgements`, async () => {
     const commands: string[] = []; let closed = false;

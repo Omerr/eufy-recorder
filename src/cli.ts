@@ -15,6 +15,7 @@ import { AutomationEngine, Presence, automationConfig, type AutomationConfig } f
 import { Actions } from './actions.ts';
 import { startAutomationApi } from './automation-api.ts';
 import { YotoAuth } from './yoto-auth.ts';
+import { sleepWidget } from './phone-widgets.ts';
 import type { Server } from 'node:http';
 import { HotboxClient, RouterPresence } from './router.ts';
 
@@ -90,7 +91,7 @@ async function config(): Promise<Config> {
 
 async function main(): Promise<void> {
   if (command === 'help' || command === '--help') {
-    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | automation-setup | automation-info | yoto-setup | readiness | check');
+    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | automation-setup | automation-info | yoto-setup | sleep-widget | readiness | check');
     return;
   }
   const [major, minor] = process.versions.node.split('.').map(Number);
@@ -104,8 +105,21 @@ async function main(): Promise<void> {
     console.log('No camera login attempted.');
     return;
   }
-  if (!['list', 'events', 'record', 'watch', 'battery', 'ntfy-test', 'yoto-login'].includes(command)) throw new Error(`Unknown command: ${command}`);
+  if (!['list', 'events', 'record', 'watch', 'battery', 'ntfy-test', 'yoto-login', 'sleep-widget'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const settings = await config();
+  if (command === 'sleep-widget') {
+    if (settings.automations.devices['sleep-music']?.type !== 'yoto') throw new Error('Configure the sleep-music Yoto device first.');
+    const token = process.env[settings.automations.api.tokenEnv] || '';
+    const host = settings.automations.api.host.includes(':') ? `[${settings.automations.api.host}]` : settings.automations.api.host;
+    const exported = sleepWidget(`http://${host}:${settings.automations.api.port}`, token);
+    const folder = path.join(stateDir, 'phone-exports');
+    await mkdir(folder, { recursive: true });
+    const filename = path.join(folder, 'yoto-sleep-widget.mdr');
+    await writeFile(filename, JSON.stringify(exported), { mode: 0o600 });
+    log(`Private Sleep widget export saved: ${filename}`);
+    log('Import only this macro on each phone, then add its MacroDroid button widget. Keep the export private.');
+    return;
+  }
   if (command === 'yoto-login') {
     await new YotoAuth(path.join(stateDir, 'yoto-session.json')).login(process.env.YOTO_CLIENT_ID || '', log);
     return;

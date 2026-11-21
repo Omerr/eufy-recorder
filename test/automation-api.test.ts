@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Presence, AutomationEngine, automationConfig } from '../src/automation.ts';
 import { startAutomationApi } from '../src/automation-api.ts';
+import { sleepShortcutToken } from '../src/shortcuts.ts';
 
 test('automation API authenticates updates, preserves private recorder settings, and simulates without acting', async (t) => {
   const probe = net.createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
@@ -102,4 +103,18 @@ test('automation API authenticates updates, preserves private recorder settings,
   const controlled = await (await fetch(base + '/api/state', { headers })).json();
   assert.equal(controlled.presenceControl.mode, 'home');
   assert.equal(controlled.presence.state, 'home');
+  const widgetHeaders = { ...headers, Authorization: `Bearer ${sleepShortcutToken(token)}` };
+  assert.equal((await fetch(base + '/api/config', { headers: widgetHeaders })).status, 401);
+  assert.equal((await fetch(base + '/api/test', { method: 'POST', headers: widgetHeaders, body: '{"device":"lamp"}' })).status, 401);
+  assert.equal((await fetch(base + '/api/presence/mode', { method: 'POST', headers: widgetHeaders, body: '{"mode":"away"}' })).status, 401);
+  assert.equal((await fetch(base + '/api/shortcuts/sleep', { headers: widgetHeaders })).status, 401);
+  assert.equal((await fetch(base + '/api/shortcuts/sleep', { method: 'POST', headers: widgetHeaders, body: '{}' })).status, 400);
+  const sleepConfig = structuredClone(engine.config());
+  sleepConfig.devices['sleep-music'] = { type: 'yoto', deviceId: 'example-player', tokenEnv: 'EXAMPLE_YOTO_TOKEN', cardUri: 'https://yoto.io/example-sleep', skipIfPlaying: false };
+  assert.equal((await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify(sleepConfig) })).status, 200);
+  assert.equal((await fetch(base + '/api/shortcuts/sleep', { method: 'POST', headers: widgetHeaders, body: '{"device":"lamp"}' })).status, 400);
+  assert.equal(executions, 1);
+  assert.equal((await fetch(base + '/api/shortcuts/sleep', { method: 'POST', headers: widgetHeaders, body: '{}' })).status, 200);
+  assert.equal(executions, 2);
+  assert.equal(presence.snapshot(15).state, 'home');
 });

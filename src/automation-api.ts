@@ -8,6 +8,7 @@ import type { YotoCatalog } from './yoto-catalog.ts';
 import type { ReportSource, ManualPresenceMode } from './presence.ts';
 import { checkReadiness } from './readiness.ts';
 import type { AutomationDevice } from './automation.ts';
+import { sleepShortcutToken } from './shortcuts.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -32,10 +33,11 @@ export async function startAutomationApi(options: {
   if (options.token.length < 32) throw new Error('Automation API token must have at least 32 characters.');
   const binding = options.engine.config().api;
   const expected = createHash('sha256').update(`Bearer ${options.token}`).digest();
+  const sleepExpected = createHash('sha256').update(`Bearer ${sleepShortcutToken(options.token)}`).digest();
   let saving: Promise<void> = Promise.resolve();
   let readiness: ReturnType<typeof checkReadiness> | undefined;
   const server = createServer(async (request, response) => {
-    response.setHeader('Content-Type', 'application/json');
+    response.setHeader('Content-Type', 'application/json; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
     const reply = (status: number, value: unknown) => response.writeHead(status).end(JSON.stringify(value));
     if (request.method === 'GET' && request.url === '/') {
@@ -45,10 +47,13 @@ export async function startAutomationApi(options: {
       response.writeHead(200).end(controlPage);
       return;
     }
+    let url: URL;
+    try { url = new URL(request.url || '/', 'http://localhost'); }
+    catch { reply(400, { error: 'Invalid request URL.' }); return; }
+    const sleepRequest = request.method === 'POST' && url.pathname === '/api/shortcuts/sleep';
     const received = createHash('sha256').update(request.headers.authorization || '').digest();
-    if (!timingSafeEqual(received, expected)) { reply(401, { error: 'Bearer token required.' }); return; }
+    if (!timingSafeEqual(received, expected) && !(sleepRequest && timingSafeEqual(received, sleepExpected))) { reply(401, { error: 'Bearer token required.' }); return; }
     try {
-      const url = new URL(request.url || '/', 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/api/state') {
         reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), presenceControl: options.presence.manualStatus(), phoneReports: options.presence.details(), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
@@ -94,6 +99,12 @@ export async function startAutomationApi(options: {
         if (value.presence !== undefined && !['home', 'away', 'unknown'].includes(value.presence as string)) throw new Error('Invalid simulation presence.');
         const decisions = options.engine.preview({ kind: value.kind as DetectionKind, camera: value.camera, at }, Date.now(), value.presence as PresenceState | undefined);
         reply(200, { dryRun: true, decisions });
+      } else if (sleepRequest) {
+        const value = await body(request);
+        if (Object.keys(value).length) throw new Error('The sleep shortcut takes an empty JSON object.');
+        if (options.engine.config().devices['sleep-music']?.type !== 'yoto') throw new Error('Configure the sleep-music Yoto device first.');
+        options.log('Manual sleep music shortcut requested.');
+        reply(200, { result: await options.engine.testDevice('sleep-music') });
       } else if (request.method === 'POST' && url.pathname === '/api/test') {
         const value = await body(request);
         if (typeof value.device !== 'string') throw new Error('Supply a device name.');

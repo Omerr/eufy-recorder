@@ -320,6 +320,29 @@ Uncheck **Preserve existing playback** to allow replacing it.
 Yoto actions have a timeout and do not queue commands for a later reconnection.
 Keep the music rule disabled until account setup and a device test succeed.
 
+## Sleep music phone widget
+
+Configure a Yoto device named `sleep-music` with the desired playlist URI.
+Set `skipIfPlaying` to `false` so a tap can switch from other audio.
+Omit `volume` to keep the player's current volume.
+
+Generate a private MacroDroid import on Windows:
+
+```powershell
+.\Start-Recorder.ps1 sleep-widget
+```
+
+The export is saved as `phone-exports/yoto-sleep-widget.mdr` in the private recorder state folder.
+It contains one macro and a playback-only access key. Keep the file private.
+Import that file on each Android phone using MacroDroid's **Select items to import** option.
+Then add a MacroDroid button widget to the home screen and select **Yoto - Sleep music**.
+Both phones need Tailscale connected and the Windows recorder service running.
+
+A tap starts the configured playlist independently of presence, camera events, and security rule switches.
+The widget key only permits the sleep playback endpoint; camera settings and presence controls require the main access key.
+The same export works on both phones. Regenerate and import it again after changing the recorder address or main access key.
+Home screen placement must be recreated on a replacement phone.
+
 ## API reference
 
 All API routes require the bearer key. The root page contains only the login UI before authentication.
@@ -335,6 +358,7 @@ All API routes require the bearer key. The root page contains only the login UI 
 | `POST /api/simulate` | Preview a camera event without executing actions |
 | `POST /api/router/refresh` | Read the current router association snapshot |
 | `POST /api/test` | Run one configured device action immediately |
+| `POST /api/shortcuts/sleep` | Play the sleep-music Yoto device; accepts the playback-only widget key |
 | `POST /api/speaker-test` | Arm one speaker playback on the next person detection |
 | `DELETE /api/speaker-test` | Cancel the one-time speaker test |
 

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'automation-setup', 'automation-info', 'yoto-setup', 'readiness', 'check')]
+    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'automation-setup', 'automation-info', 'yoto-setup', 'sleep-widget', 'readiness', 'check')]
     [string]$Mode = 'list',
     [string]$Camera = '',
     [ValidateRange(5, 120)]
@@ -136,7 +136,7 @@ if ($Mode -eq 'ntfy-setup') {
     Write-Host 'Then run .\Start-Recorder.ps1 ntfy-test to send a test notification.'
     exit 0
 }
-if ($Mode -notin @('ntfy-test', 'yoto-setup') -and -not (Test-Path -LiteralPath $credentialFile)) {
+if ($Mode -notin @('ntfy-test', 'yoto-setup', 'sleep-widget') -and -not (Test-Path -LiteralPath $credentialFile)) {
     throw 'Run .\Start-Recorder.ps1 setup first.'
 }
 if (-not (Test-Path node_modules/@mega-yfue/eufy-sdk)) {
@@ -153,7 +153,7 @@ $previousRouterUser = $env:ROUTER_USER
 $previousRouterPassword = $env:ROUTER_PASSWORD
 try {
     $nodeMode = $Mode
-    if ($Mode -notin @('ntfy-test', 'yoto-setup')) {
+    if ($Mode -notin @('ntfy-test', 'yoto-setup', 'sleep-widget')) {
         $credential = Import-Clixml -LiteralPath $credentialFile
         $env:EUFY_EMAIL = $credential.UserName
         $env:EUFY_PASSWORD = $credential.GetNetworkCredential().Password
