@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sleepWidget } from '../src/phone-widgets.ts';
-import { sleepShortcutToken } from '../src/shortcuts.ts';
+import { sleepShortcutToken, validateSleepLan } from '../src/shortcuts.ts';
 
 test('sleep widget has one manual action, a limited key, and stable IDs for repeat imports', () => {
   const key = 'example-access-key-'.repeat(3);
@@ -21,4 +21,14 @@ test('sleep widget has one manual action, a limited key, and stable IDs for repe
   assert.equal(request.headerParams[0].paramValue, 'Bearer ' + sleepShortcutToken(key));
   assert.equal(JSON.stringify(first).includes(key), false);
   assert.throws(() => sleepWidget('https://example:secret@recorder.example', key), /private API/);
+});
+
+test('home Wi-Fi widget needs no VPN and LAN binding rejects public or wildcard addresses', () => {
+  const widget = sleepWidget('http://recorder.example:8789', 'example-access-key-'.repeat(3), true);
+  assert.match(widget.macroList[0].m_description, /home Wi-Fi/);
+  assert.doesNotMatch(widget.macroList[0].m_description, /Tailscale/);
+  validateSleepLan({ host: '127.0.0.1', port: 8789 });
+  validateSleepLan({ host: [192, 168, 1, 2].join('.'), port: 8789 });
+  assert.throws(() => validateSleepLan({ host: '0.0.0.0', port: 8789 }), /specific private/);
+  assert.throws(() => validateSleepLan({ host: '203.0.113.10', port: 8789 }), /specific private/);
 });

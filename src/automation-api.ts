@@ -8,7 +8,7 @@ import type { YotoCatalog } from './yoto-catalog.ts';
 import type { ReportSource, ManualPresenceMode } from './presence.ts';
 import { checkReadiness } from './readiness.ts';
 import type { AutomationDevice } from './automation.ts';
-import { sleepShortcutToken } from './shortcuts.ts';
+import { sleepShortcutToken, validateSleepLan, type SleepLanSettings } from './shortcuts.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -29,6 +29,7 @@ export async function startAutomationApi(options: {
   router?: RouterPresence;
   yotoChoices?: (signal: AbortSignal) => Promise<YotoCatalog>;
   checkDevice?: (device: AutomationDevice, signal: AbortSignal) => Promise<string>;
+  sleepLan?: SleepLanSettings;
 }): Promise<Server> {
   if (options.token.length < 32) throw new Error('Automation API token must have at least 32 characters.');
   const binding = options.engine.config().api;
@@ -36,6 +37,7 @@ export async function startAutomationApi(options: {
   const sleepExpected = createHash('sha256').update(`Bearer ${sleepShortcutToken(options.token)}`).digest();
   let saving: Promise<void> = Promise.resolve();
   let readiness: ReturnType<typeof checkReadiness> | undefined;
+  let localSleep: Server | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
@@ -149,6 +151,31 @@ export async function startAutomationApi(options: {
   server.on('clientError', (_error, socket) => socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'));
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(binding.port, binding.host, resolve); });
   options.log(`Automation API listening on ${binding.host}:${binding.port}; bearer authentication required.`);
+  if (options.sleepLan) {
+    try {
+      validateSleepLan(options.sleepLan);
+      const candidate = createServer((request, response) => {
+        response.setHeader('Content-Type', 'application/json; charset=utf-8');
+        response.setHeader('Cache-Control', 'no-store');
+        let pathname = '';
+        try { pathname = new URL(request.url || '/', 'http://localhost').pathname; } catch {}
+        if (request.method === 'GET' && pathname === '/') {
+          response.writeHead(200).end(JSON.stringify({ service: 'Yoto Sleep shortcut' }));
+        } else if (request.method === 'POST' && pathname === '/api/shortcuts/sleep') {
+          // Reuse the same authenticated fixed action; no other control route reaches this listener.
+          server.emit('request', request, response);
+        } else response.writeHead(404).end(JSON.stringify({ error: 'Sleep shortcut only.' }));
+      });
+      candidate.requestTimeout = 10_000; candidate.headersTimeout = 10_000;
+      await new Promise<void>((resolve, reject) => {
+        candidate.once('error', reject);
+        candidate.listen(options.sleepLan!.port, options.sleepLan!.host, resolve);
+      });
+      localSleep = candidate;
+      options.log(`Sleep shortcut available on home Wi-Fi at ${options.sleepLan.host}:${options.sleepLan.port}.`);
+    } catch { options.log('Home Wi-Fi Sleep shortcut unavailable; check its local address and port.'); }
+  }
+  server.on('close', () => { if (localSleep?.listening) { localSleep.close(); localSleep.closeAllConnections(); } });
   options.signal.addEventListener('abort', () => { server.close(); server.closeAllConnections(); }, { once: true });
   return server;
 }

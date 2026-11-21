@@ -10,6 +10,20 @@ function settings(): AutomationConfig {
 }
 const detection = (time = '2026-11-20T18:00:00Z'): Detection => ({ kind: 'personDetected', camera: 'example-camera', at: new Date(time) });
 
+test('returning home leaves an acknowledged Yoto playback command running on the player', async () => {
+  const config = settings(); config.household.mode = 'events';
+  config.devices.music = { type: 'yoto', deviceId: 'example-player', tokenEnv: 'EXAMPLE_TOKEN', cardUri: 'https://yoto.io/example-card' };
+  config.rules[0].actions = [{ device: 'music' }];
+  const presence = new Presence(); let cancelled = false, calls = 0;
+  const engine = new AutomationEngine({ settings: config, presence, log: () => {}, signal: new AbortController().signal,
+    execute: async (_name, _device, signal) => { calls++; signal.addEventListener('abort', () => { cancelled = true; }); return 'Yoto playback acknowledged'; },
+  });
+  presence.setManual('away'); engine.handle(detection()); await engine.flush();
+  presence.report('person-1', 'home', 'geofence'); engine.presenceChanged(); await engine.flush();
+  assert.equal(calls, 1); assert.equal(cancelled, false);
+  assert.equal(engine.preview(detection())[0].matches, false);
+});
+
 test('manual everyone-away respects rule switches and the configured time window', () => {
   const config = settings(); config.household.mode = 'events';
   const presence = new Presence();

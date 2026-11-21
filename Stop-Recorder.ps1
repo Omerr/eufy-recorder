@@ -7,10 +7,22 @@ if (-not (Test-Path -LiteralPath $ownerFile)) {
 }
 $owner = Get-Content -LiteralPath $ownerFile -Raw | ConvertFrom-Json
 if ($owner.nonce -notmatch '^[a-f0-9-]{36}$') { throw 'Invalid recorder instance identifier.' }
+function Wait-RecorderExit {
+    # The lock is released before Node and the scheduled task wrapper finish exiting.
+    # Starting the task during that interval can be ignored by Task Scheduler.
+    for ($finishAttempt = 0; $finishAttempt -lt 60; $finishAttempt++) {
+        $nodeProcess = Get-Process -Id $owner.pid -ErrorAction SilentlyContinue
+        $startupTask = Get-ScheduledTask -TaskName 'Eufy Recorder' -ErrorAction SilentlyContinue
+        if (-not $nodeProcess -and (-not $startupTask -or $startupTask.State -ne 'Running')) { return }
+        Start-Sleep -Milliseconds 250
+    }
+    throw 'Recorder shutdown is still finishing. Wait for its Windows task to stop before restarting.'
+}
 $stopFile = Join-Path $state ('stop-' + $owner.nonce)
 Set-Content -LiteralPath $stopFile -Value 'stop' -Encoding ASCII
 for ($attempt = 0; $attempt -lt 60; $attempt++) {
     if (-not (Test-Path -LiteralPath $ownerFile)) {
+        Wait-RecorderExit
         Write-Host 'Recorder stopped and saved its completed video fragments.'
         exit 0
     }

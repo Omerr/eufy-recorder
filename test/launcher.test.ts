@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -138,4 +139,33 @@ test('readiness queries the running API without camera credentials and reports b
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /off \(standby\)/);
   assert.match(result.stdout, /\[FAILED\] Yoto/);
+});
+
+test('stop waits for the recorder process and scheduled wrapper before allowing restart', { skip: process.platform !== 'win32' }, async (t) => {
+  const directory = await workspace(t);
+  await copyFile(path.join(root, 'Stop-Recorder.ps1'), path.join(directory, 'Stop-Recorder.ps1'));
+  const state = path.join(directory, 'appdata', 'EufyRecorder');
+  const script = path.join(directory, 'fake-recorder.mjs');
+  await writeFile(script, `import fs from 'node:fs';import path from 'node:path';import{randomUUID}from'node:crypto';
+const state=process.argv[2],nonce=randomUUID(),owner=path.join(state,'recorder-lock','owner.json');
+fs.mkdirSync(path.dirname(owner),{recursive:true});fs.writeFileSync(owner,JSON.stringify({pid:process.pid,mode:'watch',nonce}));
+console.log('ready');const timer=setInterval(()=>{if(fs.existsSync(path.join(state,'stop-'+nonce))){clearInterval(timer);fs.unlinkSync(owner);setTimeout(()=>process.exit(0),750)}},50);`);
+  const child = spawn(process.execPath, [script, state]);
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  await once(child.stdout!, 'data');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `
+    $global:finishChecks=0
+    function global:Get-ScheduledTask {
+      param($TaskName)
+      $global:finishChecks++
+      if($global:finishChecks -lt 3){return [pscustomobject]@{State='Running'}}
+      Write-Host 'scheduler-ready'
+      return [pscustomobject]@{State='Ready'}
+    }
+    & ${quote(path.join(directory, 'Stop-Recorder.ps1'))}
+  `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, LOCALAPPDATA: path.join(directory, 'appdata') } });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /scheduler-ready/);
+  assert.match(result.stdout, /Recorder stopped/);
 });

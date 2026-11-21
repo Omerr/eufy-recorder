@@ -318,6 +318,9 @@ Playback waits for a player acknowledgment. An unavailable player produces an ac
 Existing playback is preserved by default: the action checks playback state before changing volume or starting a card.
 Uncheck **Preserve existing playback** to allow replacing it.
 Yoto actions have a timeout and do not queue commands for a later reconnection.
+Playback uses the player's current **Repeat All** setting for continuous looping.
+Returning home blocks new away-only starts and leaves audio that already started playing.
+Stop it on the player or in the Yoto app, or select another playlist.
 Keep the music rule disabled until account setup and a device test succeed.
 
 ## Sleep music phone widget
@@ -336,7 +339,20 @@ The export is saved as `phone-exports/yoto-sleep-widget.mdr` in the private reco
 It contains one macro and a playback-only access key. Keep the file private.
 Import that file on each Android phone using MacroDroid's **Select items to import** option.
 Then add a MacroDroid button widget to the home screen and select **Yoto - Sleep music**.
-Both phones need Tailscale connected and the Windows recorder service running.
+The default export uses Tailscale. The Windows recorder service must be running.
+
+For a phone that uses home Wi-Fi only, save `sleep-lan.json` in the private recorder state folder:
+
+```json
+{"host":"WINDOWS_LAN_ADDRESS","port":8789}
+```
+
+Use the Windows PC's private LAN IPv4 address and allow the selected TCP port on the home network in Windows Firewall.
+Restart the recorder, then run `sleep-widget` again.
+It also creates `phone-exports/yoto-sleep-widget-home.mdr`, which works over home Wi-Fi without a VPN app.
+This listener only serves Sleep playback and a basic connection check. Camera and presence controls stay on the original API address.
+Guest Wi-Fi must allow access to the PC; otherwise use the main home network.
+After restoring to a different PC, update the saved LAN address, firewall access, and widget exports.
 
 A tap starts the configured playlist independently of presence, camera events, and security rule switches.
 The widget key only permits the sleep playback endpoint; camera settings and presence controls require the main access key.

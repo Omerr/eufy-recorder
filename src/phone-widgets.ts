@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { sleepShortcutToken } from './shortcuts.ts';
 
 /** A standalone MacroDroid import containing only the sleep playback widget. */
-export function sleepWidget(apiOrigin: string, automationToken: string) {
+export function sleepWidget(apiOrigin: string, automationToken: string, homeWifiOnly = false) {
   const origin = new URL(apiOrigin);
   if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || automationToken.length < 32) {
     throw new Error('A private API origin and automation access key are required.');
@@ -16,7 +16,7 @@ export function sleepWidget(apiOrigin: string, automationToken: string) {
     macroList: [{
       m_GUID: id('macro'), m_name: 'Yoto - Sleep music', m_category: 'Yoto controls', m_enabled: true,
       m_completed: true, m_excludeLog: true, m_isOrCondition: false, m_headingColor: 0, loggingLevel: 0,
-      m_description: 'Play the Sleep playlist on the household Yoto. Keeps the player volume and switches from other playback. Requires Tailscale and the Windows recorder service.',
+      m_description: 'Play the Sleep playlist on the household Yoto. Keeps the player volume and switches from other playback. Requires ' + (homeWifiOnly ? 'home Wi-Fi' : 'Tailscale') + ' and the Windows recorder service.',
       m_descriptionOpen: false, localVariables: [], localVariableSeparators: [], localVarsAlphabetical: false,
       breakpoints: [], exportedActionBlocks: [], exportedSharedScenes: [], isFavourite: false, isActionBlock: false,
       isExtra: false, aiGenerated: 0, lastEditedTimestamp: Date.now(), disabledTimestamp: 0, forceEvenIfNotEnabledTimestamp: 0,

@@ -13,6 +13,9 @@ test('automation API authenticates updates, preserves private recorder settings,
   const probe = net.createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
   const address = probe.address(); assert.ok(address && typeof address === 'object');
   await new Promise<void>((resolve) => probe.close(() => resolve()));
+  const lanProbe = net.createServer(); lanProbe.listen(0, '127.0.0.1'); await once(lanProbe, 'listening');
+  const lanAddress = lanProbe.address(); assert.ok(lanAddress && typeof lanAddress === 'object');
+  await new Promise<void>((resolve) => lanProbe.close(() => resolve()));
   const directory = await mkdtemp(path.join(tmpdir(), 'eufy-api-test-'));
   const configFile = path.join(directory, 'recorder.json');
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -27,7 +30,7 @@ test('automation API authenticates updates, preserves private recorder settings,
   const abort = new AbortController();
   const engine = new AutomationEngine({ settings: config, presence, execute: async () => { executions++; return 'ok'; }, log: () => {}, signal: abort.signal });
   const token = 'local-test-'.repeat(5);
-  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {}, checkDevice: async () => 'reachable; standby', yotoChoices: async () => ({
+  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {}, sleepLan: { host: '127.0.0.1', port: lanAddress.port }, checkDevice: async () => 'reachable; standby', yotoChoices: async () => ({
     players: [{ id: 'example-player', name: 'Example player', online: true }], cards: [{ id: 'example-card', title: 'Example music', uri: 'https://yoto.io/example-card' }],
   }) });
   t.after(() => { abort.abort(); server.close(); });
@@ -116,5 +119,14 @@ test('automation API authenticates updates, preserves private recorder settings,
   assert.equal(executions, 1);
   assert.equal((await fetch(base + '/api/shortcuts/sleep', { method: 'POST', headers: widgetHeaders, body: '{}' })).status, 200);
   assert.equal(executions, 2);
+  assert.equal(presence.snapshot(15).state, 'home');
+  const lanBase = `http://127.0.0.1:${lanAddress.port}`;
+  assert.equal((await (await fetch(lanBase)).json()).service, 'Yoto Sleep shortcut');
+  assert.equal((await fetch(lanBase + '/api/config', { headers })).status, 404);
+  assert.equal((await fetch(lanBase + '/api/state', { headers })).status, 404);
+  assert.equal((await fetch(lanBase + '/api/presence/mode', { method: 'POST', headers, body: '{"mode":"away"}' })).status, 404);
+  assert.equal((await fetch(lanBase + '/api/shortcuts/sleep', { method: 'POST', body: '{}' })).status, 401);
+  assert.equal((await fetch(lanBase + '/api/shortcuts/sleep', { method: 'POST', headers: widgetHeaders, body: '{}' })).status, 200);
+  assert.equal(executions, 3);
   assert.equal(presence.snapshot(15).state, 'home');
 });

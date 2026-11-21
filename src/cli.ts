@@ -16,6 +16,7 @@ import { Actions } from './actions.ts';
 import { startAutomationApi } from './automation-api.ts';
 import { YotoAuth } from './yoto-auth.ts';
 import { sleepWidget } from './phone-widgets.ts';
+import { sleepLanSettings } from './shortcuts.ts';
 import type { Server } from 'node:http';
 import { HotboxClient, RouterPresence } from './router.ts';
 
@@ -117,6 +118,12 @@ async function main(): Promise<void> {
     const filename = path.join(folder, 'yoto-sleep-widget.mdr');
     await writeFile(filename, JSON.stringify(exported), { mode: 0o600 });
     log(`Private Sleep widget export saved: ${filename}`);
+    const lan = await sleepLanSettings(stateDir);
+    if (lan) {
+      const homeFile = path.join(folder, 'yoto-sleep-widget-home.mdr');
+      await writeFile(homeFile, JSON.stringify(sleepWidget(`http://${lan.host}:${lan.port}`, token, true)), { mode: 0o600 });
+      log(`Private home Wi-Fi widget export saved: ${homeFile}`);
+    }
     log('Import only this macro on each phone, then add its MacroDroid button widget. Keep the export private.');
     return;
   }
@@ -354,10 +361,13 @@ async function main(): Promise<void> {
       const apiToken = process.env[settings.automations.api.tokenEnv];
       if (apiToken) {
         try {
+          let lan;
+          try { lan = await sleepLanSettings(stateDir); } catch { log('Home Wi-Fi Sleep shortcut settings are invalid.'); }
           automationApi = await startAutomationApi({
             engine: automations, presence: phonePresence, configFile: path.join(root, 'recorder.json'),
             token: apiToken, signal: abort.signal, log, router: routerPresence, yotoChoices: (signal) => actions.yotoChoices(signal),
             checkDevice: (device, signal) => actions.checkDevice(device, signal),
+            sleepLan: lan,
           });
         } catch (error) {
           // A control API failure must not interrupt security footage recording.
