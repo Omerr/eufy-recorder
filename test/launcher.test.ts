@@ -105,3 +105,24 @@ test('Yoto setup dispatches its internal login command without changing the vali
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /yoto-login-dispatched/);
 });
+
+test('readiness queries the running API without camera credentials and reports blockers', { skip: process.platform !== 'win32' }, async (t) => {
+  const directory = await workspace(t);
+  const setup = launch(directory, 'automation-setup', '');
+  assert.equal(setup.status, 0, setup.stderr);
+  const result = launch(directory, 'readiness', `
+    function global:Invoke-RestMethod {
+      param($Uri, $Method, $Headers, $ContentType, $Body, $TimeoutSec)
+      if ($Uri -notlike '*/api/readiness' -or $Method -ne 'Post' -or $Body -ne '{}') { throw 'Unexpected API call' }
+      if (-not $Headers.Authorization.StartsWith('Bearer ')) { throw 'Missing API authentication' }
+      return [pscustomobject]@{ checkedAt='example-time'; ready=$false; note='No device action was run.'; checks=@(
+        [pscustomobject]@{ name='Lamp'; status='ok'; detail='reachable; light off (standby)' },
+        [pscustomobject]@{ name='Yoto'; status='failed'; detail='No live player reply.' }
+      ) }
+    }
+  `);
+  assert.ifError(result.error);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /off \(standby\)/);
+  assert.match(result.stdout, /\[FAILED\] Yoto/);
+});

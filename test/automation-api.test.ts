@@ -26,7 +26,7 @@ test('automation API authenticates updates, preserves private recorder settings,
   const abort = new AbortController();
   const engine = new AutomationEngine({ settings: config, presence, execute: async () => { executions++; return 'ok'; }, log: () => {}, signal: abort.signal });
   const token = 'local-test-'.repeat(5);
-  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {}, yotoChoices: async () => ({
+  const server = await startAutomationApi({ engine, presence, configFile, token, signal: abort.signal, log: () => {}, checkDevice: async () => 'reachable; standby', yotoChoices: async () => ({
     players: [{ id: 'example-player', name: 'Example player', online: true }], cards: [{ id: 'example-card', title: 'Example music', uri: 'https://yoto.io/example-card' }],
   }) });
   t.after(() => { abort.abort(); server.close(); });
@@ -34,6 +34,11 @@ test('automation API authenticates updates, preserves private recorder settings,
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   assert.equal((await fetch(base + '/api/config')).status, 401);
   assert.equal((await fetch(base + '/api/yoto')).status, 401);
+  assert.equal((await fetch(base + '/api/readiness', { method: 'POST', body: '{}' })).status, 401);
+  const readiness = await (await fetch(base + '/api/readiness', { method: 'POST', headers, body: '{}' })).json();
+  assert.equal(readiness.devicesReachable, true);
+  assert.equal(readiness.ready, false);
+  assert.equal(executions, 0);
   assert.equal((await (await fetch(base + '/api/yoto', { headers })).json()).cards[0].title, 'Example music');
   assert.match(await (await fetch(base)).text(), /Eufy events/);
   assert.equal((await (await fetch(base + '/api/state', { headers })).json()).presence.state, 'unknown');

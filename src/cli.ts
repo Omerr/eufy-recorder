@@ -90,7 +90,7 @@ async function config(): Promise<Config> {
 
 async function main(): Promise<void> {
   if (command === 'help' || command === '--help') {
-    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | automation-setup | automation-info | yoto-setup | check');
+    console.log('Use Start-Recorder.ps1: setup | list | record -Camera SERIAL [-Seconds 30] | events | watch | battery | ntfy-setup | ntfy-test | automation-setup | automation-info | yoto-setup | readiness | check');
     return;
   }
   const [major, minor] = process.versions.node.split('.').map(Number);
@@ -339,6 +339,7 @@ async function main(): Promise<void> {
           automationApi = await startAutomationApi({
             engine: automations, presence: phonePresence, configFile: path.join(root, 'recorder.json'),
             token: apiToken, signal: abort.signal, log, router: routerPresence, yotoChoices: (signal) => actions.yotoChoices(signal),
+            checkDevice: (device, signal) => actions.checkDevice(device, signal),
           });
         } catch (error) {
           // A control API failure must not interrupt security footage recording.

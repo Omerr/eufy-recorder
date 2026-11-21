@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'automation-setup', 'automation-info', 'yoto-setup', 'check')]
+    [ValidateSet('setup', 'list', 'record', 'events', 'watch', 'battery', 'ntfy-setup', 'ntfy-test', 'automation-setup', 'automation-info', 'yoto-setup', 'readiness', 'check')]
     [string]$Mode = 'list',
     [string]$Camera = '',
     [ValidateRange(5, 120)]
@@ -92,6 +92,25 @@ if ($Mode -eq 'automation-info') {
     Write-Host ('Authorization: Bearer ' + $tokenCredential.GetNetworkCredential().Password)
     Write-Host 'Keep this value on your own devices. It authorizes home automation requests.'
     exit 0
+}
+if ($Mode -eq 'readiness') {
+    if (-not (Test-Path -LiteralPath $automationTokenFile)) { throw 'Run automation-setup first.' }
+    $config = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
+    $secureToken = (Get-Content -LiteralPath $automationTokenFile -Raw).Trim() | ConvertTo-SecureString
+    $tokenCredential = New-Object System.Management.Automation.PSCredential('automation', $secureToken)
+    $headers = @{ Authorization = 'Bearer ' + $tokenCredential.GetNetworkCredential().Password }
+    $apiHost = $config.automations.api.host
+    if ($apiHost -in @('0.0.0.0', '::')) { $apiHost = '127.0.0.1' }
+    if ($apiHost.Contains(':')) { $apiHost = '[' + $apiHost + ']' }
+    $uri = 'http://' + $apiHost + ':' + $config.automations.api.port + '/api/readiness'
+    try { $report = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body '{}' -TimeoutSec 25 }
+    catch { throw 'Could not complete the check. Confirm the recorder is running and retry on its control page.' }
+    Write-Host ('Checked: ' + $report.checkedAt)
+    foreach ($item in $report.checks) { Write-Host ('[' + $item.status.ToUpperInvariant() + '] ' + $item.name + ': ' + $item.detail) }
+    Write-Host $report.note
+    if ($report.ready) { Write-Host 'Connections and automatic responses are ready.'; exit 0 }
+    Write-Host 'Attention needed before relying on automatic responses.'
+    exit 1
 }
 if ($Mode -eq 'ntfy-setup') {
     $config = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json

@@ -9,7 +9,7 @@ It writes complete MP4 fragments to disk throughout the event.
 Recording runs on Node.js alone. Optional automations can control lights, camera audio, and music.
 
 See [camera event automations](docs/automations.md) for the configuration page, Android presence,
-Yeelight, camera speech, and Yoto setup.
+Yeelight, camera speech, Yoto setup, and the `readiness` check before leaving home.
 
 ## First connection
 

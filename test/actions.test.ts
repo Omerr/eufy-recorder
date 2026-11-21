@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 import type { Device } from '@mega-yfue/eufy-sdk';
-import { yeelightOn, validateCameraAudio, cameraAudio } from '../src/actions.ts';
+import { yeelightOn, yeelightStatus, validateCameraAudio, cameraAudio } from '../src/actions.ts';
 
 for (const power of ['on', 'off']) {
   test(`Yeelight ${power === 'on' ? 'leaves an already-on lamp unchanged' : 'turns on an off lamp without toggling'}`, async (t) => {
@@ -34,6 +34,23 @@ for (const power of ['on', 'off']) {
       assert.equal(result, 'turned on');
       assert.deepEqual(methods[1], { method: 'set_power', params: ['on', 'smooth', 300] });
     }
+  });
+}
+
+for (const power of ['on', 'off']) {
+  test(`Yeelight readiness reads ${power} without sending a power command`, async (t) => {
+    const methods: string[] = [];
+    const server = net.createServer(socket => {
+      socket.on('data', bytes => {
+        const request = JSON.parse(bytes.toString().trim()); methods.push(request.method);
+        socket.write(JSON.stringify({ id: request.id, result: [power] }) + '\r\n');
+      });
+    });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+    const address = server.address(); assert.ok(address && typeof address === 'object');
+    assert.match(await yeelightStatus('127.0.0.1', address.port), /reachable/);
+    assert.deepEqual(methods, ['get_prop']);
   });
 }
 

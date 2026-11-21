@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { stat, readFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { once } from 'node:events';
+import { isDeepStrictEqual } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Device } from '@mega-yfue/eufy-sdk';
 import { connectAsync } from 'mqtt';
@@ -12,16 +13,24 @@ import { YotoAuth } from './yoto-auth.ts';
 import { yotoCatalog } from './yoto-catalog.ts';
 
 export async function yeelightOn(host: string, port = 55443, signal = AbortSignal.timeout(12_000)): Promise<string> {
-  try { return await yeelightAttempt(host, port, signal); }
+  return yeelightRequest(host, port, signal, true);
+}
+
+export async function yeelightStatus(host: string, port = 55443, signal = AbortSignal.timeout(12_000)): Promise<string> {
+  return yeelightRequest(host, port, signal, false);
+}
+
+async function yeelightRequest(host: string, port: number, signal: AbortSignal, turnOn: boolean): Promise<string> {
+  try { return await yeelightAttempt(host, port, signal, turnOn); }
   catch (error) {
     if (signal.aborted) throw error;
     await delay(300, undefined, { signal });
     // Retrying is safe: read the current power state again, then set on explicitly.
-    return await yeelightAttempt(host, port, signal);
+    return await yeelightAttempt(host, port, signal, turnOn);
   }
 }
 
-async function yeelightAttempt(host: string, port: number, signal: AbortSignal): Promise<string> {
+async function yeelightAttempt(host: string, port: number, signal: AbortSignal, turnOn: boolean): Promise<string> {
   const socket = net.createConnection({ host, port });
   socket.setTimeout(5000, () => socket.destroy(new Error('Yeelight request timed out.')));
   let buffer = '';
@@ -56,6 +65,7 @@ async function yeelightAttempt(host: string, port: number, signal: AbortSignal):
     await once(socket, 'connect', { signal });
     await delay(100, undefined, { signal });
     const power = await request('get_prop', ['power']);
+    if (!turnOn && ['on', 'off'].includes(String(power[0]))) return power[0] === 'on' ? 'reachable; light on' : 'reachable; light off (standby)';
     if (power[0] === 'on') return 'already on';
     if (power[0] !== 'off') throw new Error('Yeelight power state is unknown.');
     signal.throwIfAborted();
@@ -134,7 +144,7 @@ export async function cameraAudio(device: Device | undefined, filename: string, 
 
 export async function yotoPlay(
   device: Extract<AutomationDevice, { type: 'yoto' }>, accessToken: string, signal: AbortSignal,
-  connector: typeof connectAsync = connectAsync,
+  connector: typeof connectAsync = connectAsync, statusOnly = false,
 ): Promise<string> {
   signal.throwIfAborted();
   const id = device.deviceId;
@@ -153,12 +163,12 @@ export async function yotoPlay(
     const responseTopic = `device/${id}/response`;
     const eventsTopic = `device/${id}/data/events`;
     await client.subscribeAsync([responseTopic, eventsTopic]);
-    if (device.skipIfPlaying !== false) {
+    {
       const status = await new Promise<string>((resolve, reject) => {
-        const timer = setTimeout(() => finish(new Error('Yoto did not report its playback state.')), 7000);
+        const timer = setTimeout(() => finish(new Error('Yoto is unreachable: no live status reply. Check its power and Wi-Fi.')), 7000);
         const cancelled = () => finish(new Error('Yoto request cancelled.'));
-        const received = (topic: string, bytes: Buffer) => {
-          if (topic !== eventsTopic) return;
+        const received = (topic: string, bytes: Buffer, packet?: { retain?: boolean }) => {
+          if (topic !== eventsTopic || packet?.retain) return;
           try { const value = JSON.parse(bytes.toString()); if (typeof value.playbackStatus === 'string') finish(undefined, value.playbackStatus); } catch {}
         };
         const finish = (error?: Error, state = '') => {
@@ -169,22 +179,26 @@ export async function yotoPlay(
         if (signal.aborted) { cancelled(); return; }
         client.publish(`device/${id}/command/events/request`, '{}', { qos: 1 }, (error) => { if (error) finish(error); });
       });
-      if (status === 'playing') return 'already playing; current playback preserved';
-      if (!['paused', 'stopped'].includes(status)) throw new Error('Yoto playback state is unknown.');
+      if (statusOnly && ['playing', 'paused', 'stopped'].includes(status)) return `reachable; ${status}${status === 'stopped' ? ' (standby)' : ''}`;
+      if (status === 'playing' && device.skipIfPlaying !== false) return 'already playing; current playback preserved';
+      if (!['playing', 'paused', 'stopped'].includes(status)) throw new Error('Yoto playback state is unknown.');
     }
     const send = async (resource: string, operation: string, body: object): Promise<void> => {
       signal.throwIfAborted();
       const payload = JSON.stringify(body);
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => finish(new Error('Yoto did not acknowledge the command.')), 7000);
+        const timer = setTimeout(() => finish(new Error(`Yoto did not acknowledge ${resource}/${operation}.`)), 7000);
         const cancelled = () => finish(new Error('Yoto command cancelled.'));
         const received = (topic: string, bytes: Buffer) => {
           if (topic !== responseTopic) return;
           try {
             const status = JSON.parse(bytes.toString()).status;
-            if (status?.req_body && JSON.stringify(JSON.parse(status.req_body)) !== payload) return;
-            if (status?.[resource] === 'OK') finish();
-            else if (status?.[resource] === 'FAIL') finish(new Error('Yoto rejected the command.'));
+            if (status?.req_body && !isDeepStrictEqual(JSON.parse(status.req_body), body)) return;
+            // Player firmware uses these names; the public schema also documents
+            // the shorter resource names. Accept both after matching the request.
+            const acknowledgement = status?.[resource] ?? status?.[resource === 'card' ? 'card-play' : `${operation}-${resource}`];
+            if (acknowledgement === 'OK') finish();
+            else if (acknowledgement === 'FAIL') finish(new Error('Yoto rejected the command.'));
           } catch { /* Ignore unrelated player messages. */ }
         };
         const finish = (error?: Error) => {
@@ -208,12 +222,25 @@ export class Actions {
   private devices: Map<string, Device>;
   private yoto: YotoAuth;
   private busy = new Set<string>();
+  private yotoWork: Promise<unknown> = Promise.resolve();
+  private async withYoto<T>(operation: () => Promise<T>): Promise<T> {
+    // A player uses one MQTT client identity. Serialize probes and playback so
+    // a readiness check cannot disconnect an action that is already running.
+    const work = this.yotoWork.then(operation, operation);
+    this.yotoWork = work.catch(() => {});
+    return work;
+  }
   constructor(root: string, stateDir: string, devices: Map<string, Device>) {
     this.root = root; this.devices = devices; this.yoto = new YotoAuth(path.join(stateDir, 'yoto-session.json'));
   }
   async yotoChoices(signal: AbortSignal) {
     const token = process.env.YOTO_ACCESS_TOKEN || await this.yoto.accessToken();
     return yotoCatalog(token, signal);
+  }
+  async checkDevice(device: AutomationDevice, signal: AbortSignal): Promise<string> {
+    if (device.type === 'yeelight') return yeelightStatus(device.host, device.port, signal);
+    if (device.type === 'yoto') return this.withYoto(async () => yotoPlay(device, process.env[device.tokenEnv] || await this.yoto.accessToken(), signal, connectAsync, true));
+    throw new Error('This device needs a manual functional test.');
   }
   async execute(name: string, device: AutomationDevice, signal: AbortSignal): Promise<string> {
     if (this.busy.has(name)) return 'already handling another event';
@@ -222,7 +249,7 @@ export class Actions {
       switch (device.type) {
         case 'yeelight': return await yeelightOn(device.host, device.port, signal);
         case 'eufy-audio': return await cameraAudio(this.devices.get(device.camera), path.resolve(this.root, device.file), signal);
-        case 'yoto': return await yotoPlay(device, process.env[device.tokenEnv] || await this.yoto.accessToken(), signal);
+        case 'yoto': return await this.withYoto(async () => yotoPlay(device, process.env[device.tokenEnv] || await this.yoto.accessToken(), signal));
         case 'webhook': {
           const token = device.tokenEnv ? process.env[device.tokenEnv] : undefined;
           if (device.tokenEnv && !token) throw new Error('Webhook token is not configured.');

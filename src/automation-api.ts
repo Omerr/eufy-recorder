@@ -6,6 +6,8 @@ import { controlPage } from './control-page.ts';
 import type { RouterPresence } from './router.ts';
 import type { YotoCatalog } from './yoto-catalog.ts';
 import type { ReportSource } from './presence.ts';
+import { checkReadiness } from './readiness.ts';
+import type { AutomationDevice } from './automation.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -25,11 +27,13 @@ export async function startAutomationApi(options: {
   token: string; signal: AbortSignal; log: (message: string) => void;
   router?: RouterPresence;
   yotoChoices?: (signal: AbortSignal) => Promise<YotoCatalog>;
+  checkDevice?: (device: AutomationDevice, signal: AbortSignal) => Promise<string>;
 }): Promise<Server> {
   if (options.token.length < 32) throw new Error('Automation API token must have at least 32 characters.');
   const binding = options.engine.config().api;
   const expected = createHash('sha256').update(`Bearer ${options.token}`).digest();
   let saving: Promise<void> = Promise.resolve();
+  let readiness: ReturnType<typeof checkReadiness> | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
@@ -49,6 +53,12 @@ export async function startAutomationApi(options: {
         reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), phoneReports: options.presence.details(), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
+      } else if (request.method === 'POST' && url.pathname === '/api/readiness') {
+        await body(request);
+        if (!options.checkDevice) throw new Error('Device checks are not initialized.');
+        readiness ??= checkReadiness(options.engine.config(), options.presence, options.checkDevice,
+          AbortSignal.any([options.signal, AbortSignal.timeout(20_000)])).finally(() => { readiness = undefined; });
+        reply(200, await readiness);
       } else if (request.method === 'GET' && url.pathname === '/api/yoto') {
         if (!options.yotoChoices) throw new Error('Yoto is not initialized.');
         reply(200, await options.yotoChoices(AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])));

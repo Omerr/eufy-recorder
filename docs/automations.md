@@ -49,6 +49,31 @@ Each rule specifies:
 Add `before: "07:00"` to continue through the following morning.
 Person and stranger detections share a rule's cooldown.
 
+## Check before leaving
+
+Keep the recorder running, then use **Check before leaving** on the control page.
+The same check is available from Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Recorder.ps1 readiness
+```
+
+The check reads the lamp's current power state and requests a live Yoto playback report.
+A light that is off and reachable appears as standby.
+Yoto can be stopped or paused and still pass the connection check.
+An unreachable device fails its check. Check mains power, Wi-Fi, and Yoto internet access.
+Yoto authorization failures also fail the check.
+The check leaves light power, player volume, and playback unchanged.
+
+The report also checks household presence and whether response rules are enabled.
+Unknown presence and paused rules need attention even when both devices are reachable.
+The command exits with status 1 when a device fails or an automation prerequisite needs attention.
+Status 0 means the listed checks passed. Rule time windows and detection conditions still apply.
+This checks connections at the displayed time. Use separate recording and audible playback tests to verify those functions.
+
+Yoto playback accepts both documented acknowledgement names and the names returned by player firmware.
+A live status request runs before playback. Retained status messages cannot confirm reachability.
+
 ## Router-based household presence
 
 The HOT Box 5F adapter supports the GR140IG local interface.
