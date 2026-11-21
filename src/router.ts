@@ -10,7 +10,7 @@ export interface RouterClient {
 }
 export interface HouseholdConfig {
   enabled: boolean;
-  mode?: 'router' | 'hybrid';
+  mode?: 'router' | 'hybrid' | 'events';
   pollSeconds: number;
   awayGraceSeconds: number;
   people: { id: string; name: string; macs: string[] }[];
@@ -21,7 +21,7 @@ export const defaultHousehold: HouseholdConfig = {
 };
 export const normalizeMac = (value: string) => value.trim().replaceAll('-', ':').toLowerCase();
 export function validateHousehold(value: HouseholdConfig): void {
-  if (typeof value.enabled !== 'boolean' || (value.mode !== undefined && !['router', 'hybrid'].includes(value.mode)) || !Number.isInteger(value.pollSeconds) || value.pollSeconds < 15 || value.pollSeconds > 300 ||
+  if (typeof value.enabled !== 'boolean' || (value.mode !== undefined && !['router', 'hybrid', 'events'].includes(value.mode)) || !Number.isInteger(value.pollSeconds) || value.pollSeconds < 15 || value.pollSeconds > 300 ||
     !Number.isInteger(value.awayGraceSeconds) || value.awayGraceSeconds < 60 || value.awayGraceSeconds > 1800 ||
     !Array.isArray(value.people) || value.people.length < 1 || value.people.length > 20) throw new Error('Invalid household router settings.');
   const ids = new Set<string>();

@@ -5,7 +5,7 @@ import { AutomationEngine, Presence, automationConfig, type DetectionKind, type 
 import { controlPage } from './control-page.ts';
 import type { RouterPresence } from './router.ts';
 import type { YotoCatalog } from './yoto-catalog.ts';
-import type { ReportSource } from './presence.ts';
+import type { ReportSource, ManualPresenceMode } from './presence.ts';
 import { checkReadiness } from './readiness.ts';
 import type { AutomationDevice } from './automation.ts';
 
@@ -50,7 +50,7 @@ export async function startAutomationApi(options: {
     try {
       const url = new URL(request.url || '/', 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), phoneReports: options.presence.details(), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
+        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), presenceControl: options.presence.manualStatus(), phoneReports: options.presence.details(), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
       } else if (request.method === 'POST' && url.pathname === '/api/readiness') {
@@ -63,20 +63,27 @@ export async function startAutomationApi(options: {
         if (!options.yotoChoices) throw new Error('Yoto is not initialized.');
         reply(200, await options.yotoChoices(AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])));
       } else if (request.method === 'POST' && url.pathname === '/api/presence') {
-        const hybrid = options.engine.config().household.mode === 'hybrid';
-        if (!hybrid && options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
+        const individual = ['hybrid', 'events'].includes(options.engine.config().household.mode || 'router');
+        if (!individual && options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
         const value = await body(request);
         if (!['home', 'away', 'unknown'].includes(value.state as string)) throw new Error('state must be home, away, or unknown.');
-        if (hybrid) {
-          if (typeof value.person !== 'string' || !['geofence', 'maps-notification'].includes(value.source as string)) throw new Error('Supply a registered person and geofence or maps-notification source.');
+        if (individual) {
+          if (typeof value.person !== 'string' || !['geofence', 'maps-notification', 'manual'].includes(value.source as string)) throw new Error('Supply a registered person and geofence, maps-notification, or manual source.');
           options.presence.report(value.person, value.state as PresenceState, value.source as ReportSource);
         } else {
-          if (value.person !== undefined || value.source !== undefined) throw new Error('Select phone reports with router home detection for individual reports.');
+          if (value.person !== undefined || value.source !== undefined) throw new Error('Select an individual phone presence method for these reports.');
           options.presence.update(value.state as PresenceState);
         }
         options.engine.presenceChanged();
-        options.log(`Phone presence: ${hybrid ? `${value.person} (${value.source})` : 'household'}=${value.state}`);
+        options.log(`Phone presence: ${individual ? `${value.person} (${value.source})` : 'household'}=${value.state}`);
         reply(200, options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes));
+      } else if (request.method === 'POST' && url.pathname === '/api/presence/mode') {
+        const value = await body(request);
+        if (!['auto', 'home', 'away'].includes(value.mode as string)) throw new Error('mode must be auto, home, or away.');
+        options.presence.setManual(value.mode as ManualPresenceMode);
+        options.engine.presenceChanged();
+        options.log(`Presence control: ${value.mode}`);
+        reply(200, { ...options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), ...options.presence.manualStatus() });
       } else if (request.method === 'POST' && url.pathname === '/api/simulate') {
         const value = await body(request);
         if (!['motion', 'personDetected', 'strangerDetected'].includes(value.kind as string) || typeof value.camera !== 'string') {

@@ -116,17 +116,49 @@ No router network settings are changed by the monitor.
 
 ## Android presence with MacroDroid
 
-Select **Phone reports with router home detection** under **Household presence settings**, then save.
-Keep **Check home Wi-Fi connections** enabled when router credentials are available.
-This sets `household.mode` to `hybrid`; router mode remains the default for existing installations.
+Choose a presence method under **Household presence settings**, then save.
+Router mode remains the default for existing installations.
 
-Each configured person has a separate home, away, or unknown report.
-Any fresh home report or current home Wi-Fi association makes the household home.
-Away requires fresh, explicit away reports from every person throughout the departure grace period.
-Wi-Fi absence contributes no away evidence in this mode.
+### Last reported state
+
+Select **Last reported state (events)** to use `household.mode: "events"`.
+Each person's home, away, or unknown state persists until another event or manual correction changes it.
+Periodic phone updates are optional with this method.
+Any person recorded as home makes the household home.
+Everyone recorded as away starts the three-minute departure grace period.
+Missing person states keep the household unknown until corrected.
+
+The top of the control page provides these controls:
+
+- **Automatic** combines each person's recorded state and applies the departure grace period.
+- **Someone home** holds household presence at home until you change the mode.
+- **Everyone away** sets household presence to away immediately. A new home report returns the mode to Automatic.
+
+Each person also has Home, Away, and Unknown buttons for correcting a missed event.
+The page shows the source and date of the last update.
+A missed return can leave a person recorded as away. Review and correct the state on the page when needed.
+Presence controls affect enabled rules; rule switches remain independent.
+Time windows, camera selection, and cooldowns still apply to manual everyone-away mode.
+
+Person states, departure timing, and manual mode are saved privately in `presence-state.json` and survive recorder restarts.
+Changing the person IDs or presence method starts with unknown states and Automatic mode.
+The encrypted recovery snapshot includes the saved state. Review it before enabling responses on a restored installation.
+
+Open the page through Tailscale and enter your access key.
+**Remember this browser** saves that key in the browser for subsequent visits.
+**Disconnect and forget key** removes the saved key.
+
+### Expiring reports
+
+Select **Phone reports with router home detection** to use `household.mode: "hybrid"`.
+This method expires individual reports after `presenceMaxAgeMinutes`, which defaults to 15 minutes.
+Fresh explicit away reports are required from every person throughout the departure grace period.
 Missing or expired reports become unknown and block away-only rules.
-Reports start unknown after a recorder restart or presence settings change.
-The default report expiry is 15 minutes; the departure grace is three minutes.
+Periodic location verification can renew those reports.
+
+With either individual method, **Check home Wi-Fi connections** optionally adds current router association as home evidence.
+Wi-Fi absence contributes no away evidence.
+Leave that option off when using only phone events and manual controls.
 Returning home cancels active actions and prevents later actions in the same rule.
 
 ### Phone settings
@@ -170,10 +202,10 @@ Keep the light and sound rules disabled during setup.
 Check each person's state on the control page while testing arrival and departure.
 Testing an HTTP action manually verifies delivery; it bypasses the macro's location trigger.
 
-Transitions alone provide temporary presence evidence.
-For ongoing away detection, add periodic verification using a newly obtained location fix before reporting the current state.
-Send unknown when location is unavailable, old, or too inaccurate to distinguish inside from outside.
-Repeating a stored home/away variable cannot verify current location.
+In event mode, these transitions keep their state until the next event or correction.
+Expiring mode needs periodic verification using a newly obtained location fix.
+Send unknown when a location check cannot distinguish inside from outside.
+Repeating a stored value cannot provide that verification.
 
 ### Google Maps notifications through one phone
 
@@ -198,9 +230,8 @@ Only the state is forwarded; notification text stays on the phone.
 Maps alerts report transitions and cannot supply periodic location verification.
 Forward each new alert once.
 Do not repeat an old departure alert through a timer or retry queue.
-After the report expiry, that person's state becomes unknown until new evidence arrives.
-Notification forwarding alone cannot sustain all-away detection during a long absence.
-A location reporter on each phone provides a way to renew evidence while both people remain away.
+Event mode keeps the reported state until another alert or manual correction.
+In expiring mode, the person becomes unknown after the report expiry.
 
 ### Recover the phone macros
 
@@ -299,7 +330,8 @@ All API routes require the bearer key. The root page contains only the login UI 
 | `GET /api/config` | Local automation configuration |
 | `GET /api/yoto` | Player and card selection metadata from the connected account |
 | `PUT /api/config` | Validate and save rules and devices |
-| `POST /api/presence` | Report home, away, or unknown |
+| `POST /api/presence` | Report or manually correct a person's home, away, or unknown state |
+| `POST /api/presence/mode` | Select auto, home, or away household mode |
 | `POST /api/simulate` | Preview a camera event without executing actions |
 | `POST /api/router/refresh` | Read the current router association snapshot |
 | `POST /api/test` | Run one configured device action immediately |
@@ -309,6 +341,8 @@ All API routes require the bearer key. The root page contains only the login UI 
 Simulation accepts `kind`, `camera`, an optional ISO timestamp `at`, and an optional presence override.
 Overrides affect the preview only. They leave actual phone presence unchanged.
 Device tests accept `{"device":"DEVICE_ALIAS"}`.
+Household mode accepts `{"mode":"auto"}`, `{"mode":"home"}`, or `{"mode":"away"}`.
+Individual corrections use `source: "manual"` alongside the person ID and state.
 
 Local config, API keys, camera IDs, network addresses, audio clips, and OAuth sessions stay private.
 The public-source checks reject runtime files and matching private configuration values.

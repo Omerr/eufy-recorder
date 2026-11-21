@@ -10,6 +10,18 @@ function settings(): AutomationConfig {
 }
 const detection = (time = '2026-11-20T18:00:00Z'): Detection => ({ kind: 'personDetected', camera: 'example-camera', at: new Date(time) });
 
+test('manual everyone-away respects rule switches and the configured time window', () => {
+  const config = settings(); config.household.mode = 'events';
+  const presence = new Presence();
+  const engine = new AutomationEngine({ settings: config, presence, signal: new AbortController().signal, execute: async () => 'ok', log: () => {} });
+  const now = Date.now(); presence.setManual('away', now);
+  assert.equal(engine.preview(detection('2026-11-20T16:59:00Z'), now)[0].matches, false);
+  assert.equal(engine.preview(detection(), now)[0].matches, true);
+  config.rules[0].enabled = false; engine.configure(config);
+  assert.equal(presence.manualStatus().mode, 'away');
+  assert.equal(engine.preview(detection(), now)[0].matches, false);
+});
+
 test('individual household reports gate actions and a Maps arrival cancels later actions', async () => {
   const config = settings(); config.household.mode = 'hybrid';
   const presence = new Presence(); let now = 1000;

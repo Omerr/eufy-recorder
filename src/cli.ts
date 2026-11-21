@@ -154,7 +154,7 @@ async function main(): Promise<void> {
   const abort = new AbortController();
   const active = new Map<string, { window: RecordingWindow; done: Promise<void> }>();
   const devices = new Map<string, Device>();
-  const phonePresence = new Presence();
+  const phonePresence = new Presence(path.join(stateDir, 'presence-state.json'));
   const actions = new Actions(root, stateDir, devices);
   const automations = new AutomationEngine({
     settings: settings.automations, presence: phonePresence,
@@ -253,6 +253,10 @@ async function main(): Promise<void> {
         });
       }, 1000);
     }
+    if (command === 'watch') {
+      try { phonePresence.load(); }
+      catch { log('Saved presence could not be loaded; presence starts unknown. Use the control page to correct it.'); }
+    }
     if (command === 'watch' && settings.battery.enabled) {
       batteryMonitor = new BatteryMonitor({
         settings: settings.battery,
@@ -328,7 +332,7 @@ async function main(): Promise<void> {
         client: routerClient, settings: () => automations.config().household,
         publish: (state, snapshot) => {
           phonePresence.observeRouter(snapshot);
-          if (automations.config().household.mode !== 'hybrid') phonePresence.update(state);
+          if (!['hybrid', 'events'].includes(automations.config().household.mode || 'router')) phonePresence.update(state);
           automations.presenceChanged();
         }, log, signal: abort.signal,
       });

@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Presence } from '../src/presence.ts';
 import type { HouseholdConfig, HouseholdSnapshot } from '../src/router.ts';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 function settings(): HouseholdConfig {
   return { enabled: true, mode: 'hybrid', pollSeconds: 60, awayGraceSeconds: 180,
@@ -78,4 +81,59 @@ test('restart, changed configuration, invalid identity, and unknown reports cann
   assert.equal(presence().snapshot(15, 183_000).state, 'unknown');
   p.update('away', 183_000);
   assert.equal(p.snapshot(15, 183_000).state, 'unknown');
+});
+
+test('event states survive long absences and restart, and an arrival ends manual everyone-away', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'presence-events-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'presence.json');
+  const config = settings(); config.mode = 'events'; config.enabled = false;
+  const first = new Presence(file); first.configure(config, 15); first.load();
+  first.report('one', 'away', 'geofence', 1000);
+  first.report('two', 'away', 'maps-notification', 1000);
+  const later = 1000 + 24 * 60 * 60_000;
+  assert.equal(first.snapshot(15, later).state, 'away');
+  const second = new Presence(file); second.configure(config, 15); second.load();
+  assert.equal(second.snapshot(15, later).state, 'away');
+  second.setManual('away', later);
+  const third = new Presence(file); third.configure(config, 15); third.load();
+  assert.equal(third.manualStatus().mode, 'away');
+  third.report('two', 'home', 'maps-notification', later + 1);
+  assert.equal(third.snapshot(15, later + 1).state, 'home');
+  assert.equal(third.manualStatus().mode, 'auto');
+  const fourth = new Presence(file); fourth.configure(config, 15); fourth.load();
+  assert.equal(fourth.manualStatus().mode, 'auto');
+  assert.equal(fourth.snapshot(15, later + 2).state, 'home');
+});
+
+test('manual controls can arm unknown occupancy, hold home, and return to automatic grace', () => {
+  const p = presence();
+  p.setManual('away', 1000);
+  assert.equal(p.snapshot(15, 1000).state, 'away');
+  p.report('one', 'home', 'manual', 2000);
+  assert.equal(p.manualStatus().mode, 'auto');
+  assert.equal(p.snapshot(15, 2000).state, 'home');
+  p.setManual('home', 3000);
+  p.report('one', 'away', 'geofence', 4000); p.report('two', 'away', 'maps-notification', 4000);
+  assert.equal(p.snapshot(15, 184_000).state, 'home');
+  p.setManual('auto', 184_000);
+  assert.equal(p.snapshot(15, 184_000).state, 'unknown');
+  assert.equal(p.snapshot(15, 364_000).state, 'away');
+});
+
+test('unwritable storage keeps the prior state and corrupt saved data cannot arm responses', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'presence-failure-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'presence.json');
+  const config = settings(); config.mode = 'events';
+  const p = new Presence(file); p.configure(config, 15); p.load();
+  p.report('one', 'home', 'manual', 1000);
+  await mkdir(file + '.tmp');
+  assert.throws(() => p.setManual('away', 2000), /previous state was kept/);
+  assert.equal(p.manualStatus().mode, 'auto');
+  assert.equal(p.snapshot(15, 2000).state, 'home');
+  await writeFile(file, '{invalid');
+  const restored = new Presence(file); restored.configure(config, 15);
+  assert.throws(() => restored.load(), /could not be loaded/);
+  assert.equal(restored.snapshot(15, 2000).state, 'unknown');
 });
