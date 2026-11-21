@@ -7,7 +7,7 @@ const git = (...args) => execFileSync('git', args, { maxBuffer: 32 * 1024 * 1024
 const history = process.argv.includes('--history');
 const messageIndex = process.argv.indexOf('--message');
 const roots = new Set([
-  '.gitignore', '.gitattributes', 'LICENSE', 'README.md', 'package.json', 'package-lock.json',
+  '.gitignore', '.gitattributes', 'AGENTS.md', 'LICENSE', 'README.md', 'package.json', 'package-lock.json',
   'tsconfig.json', 'recorder.example.json', 'automation.example.json',
   'Start-Recorder.ps1', 'Stop-Recorder.ps1', 'Run-Background.ps1', 'Install-Startup.ps1', 'Make-Speech.ps1', 'Connect-Router.ps1',
 ]);

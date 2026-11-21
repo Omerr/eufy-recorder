@@ -209,3 +209,14 @@ Use a GitHub noreply email for commits.
 An optional external denylist can block additional personal names or network labels.
 Keep that JSON array outside the repository and set its path with
 `git config --local privacy.denylist PATH_TO_PRIVATE_FILE`.
+
+## Recovery after replacing the computer
+
+Git preserves the source. Personal rules and settings in `recorder.json` need a separate encrypted backup.
+Windows DPAPI credentials must be saved again under the replacement Windows user.
+Copying their encrypted files alone cannot restore them on another PC.
+
+A private recovery checkout can export those credentials in memory, encrypt them with a portable recovery key, and reinstall startup tasks.
+Register that checkout locally with `git config recovery.workspace C:/path/to/private-recovery`.
+Keep its recovery key in a password manager and verify snapshots after changing settings.
+Restore with automatic actions paused, then validate device access and household presence.
