@@ -69,4 +69,17 @@ test('automation API authenticates updates, preserves private recorder settings,
   assert.equal(presence.snapshot(15).state, 'unknown');
   assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: '{"state":"away"}' })).status, 400);
   assert.equal(presence.snapshot(15).state, 'unknown');
+  householdConfig.household.mode = 'hybrid';
+  assert.equal((await fetch(base + '/api/config', { method: 'PUT', headers, body: JSON.stringify(householdConfig) })).status, 200);
+  assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: '{"state":"away"}' })).status, 400);
+  const report = { person: 'person-1', source: 'geofence', state: 'away' };
+  assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: JSON.stringify(report) })).status, 200);
+  assert.equal(presence.snapshot(15).state, 'unknown');
+  assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: JSON.stringify({ ...report, person: 'unregistered' }) })).status, 400);
+  assert.equal((await fetch(base + '/api/presence', { method: 'POST', headers, body: JSON.stringify({ person: 'person-2', source: 'maps-notification', state: 'home' }) })).status, 200);
+  const state = await (await fetch(base + '/api/state', { headers })).json();
+  assert.equal(state.presence.state, 'home');
+  assert.equal(state.phoneReports.people[0].state, 'away');
+  assert.equal(state.phoneReports.people[1].source, 'maps-notification');
+  assert.equal(executions, 1);
 });

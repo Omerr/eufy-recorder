@@ -10,17 +10,18 @@ export interface RouterClient {
 }
 export interface HouseholdConfig {
   enabled: boolean;
+  mode?: 'router' | 'hybrid';
   pollSeconds: number;
   awayGraceSeconds: number;
   people: { id: string; name: string; macs: string[] }[];
 }
 export const defaultHousehold: HouseholdConfig = {
-  enabled: false, pollSeconds: 60, awayGraceSeconds: 180,
+  enabled: false, mode: 'router', pollSeconds: 60, awayGraceSeconds: 180,
   people: [{ id: 'person-1', name: 'Person 1', macs: [] }, { id: 'person-2', name: 'Person 2', macs: [] }],
 };
 export const normalizeMac = (value: string) => value.trim().replaceAll('-', ':').toLowerCase();
 export function validateHousehold(value: HouseholdConfig): void {
-  if (typeof value.enabled !== 'boolean' || !Number.isInteger(value.pollSeconds) || value.pollSeconds < 15 || value.pollSeconds > 300 ||
+  if (typeof value.enabled !== 'boolean' || (value.mode !== undefined && !['router', 'hybrid'].includes(value.mode)) || !Number.isInteger(value.pollSeconds) || value.pollSeconds < 15 || value.pollSeconds > 300 ||
     !Number.isInteger(value.awayGraceSeconds) || value.awayGraceSeconds < 60 || value.awayGraceSeconds > 1800 ||
     !Array.isArray(value.people) || value.people.length < 1 || value.people.length > 20) throw new Error('Invalid household router settings.');
   const ids = new Set<string>();
@@ -188,7 +189,7 @@ export class HouseholdTracker {
 export class RouterPresence {
   private client: Pick<HotboxClient, 'clients'> | null;
   private settings: () => HouseholdConfig;
-  private publish: (state: HouseholdSnapshot['state']) => void;
+  private publish: (state: HouseholdSnapshot['state'], snapshot: HouseholdSnapshot | null) => void;
   private log: (message: string) => void;
   private signal: AbortSignal;
   private tracker = new HouseholdTracker();
@@ -198,7 +199,7 @@ export class RouterPresence {
   private wasEnabled = false;
   constructor(options: {
     client: Pick<HotboxClient, 'clients'> | null; settings: () => HouseholdConfig;
-    publish: (state: HouseholdSnapshot['state']) => void;
+    publish: (state: HouseholdSnapshot['state'], snapshot: HouseholdSnapshot | null) => void;
     log: (message: string) => void; signal: AbortSignal;
   }) {
     this.client = options.client; this.settings = options.settings;
@@ -211,7 +212,7 @@ export class RouterPresence {
     if (this.timer) clearTimeout(this.timer);
     this.pending = (async () => {
       const settings = this.settings();
-      if (this.wasEnabled !== settings.enabled) { this.publish('unknown'); this.tracker.unavailable(settings); }
+      if (this.wasEnabled !== settings.enabled) { this.publish('unknown', null); this.tracker.unavailable(settings); }
       this.wasEnabled = settings.enabled;
       if (this.signal.aborted || (!settings.enabled && !forceRead)) return;
       try {
@@ -223,9 +224,9 @@ export class RouterPresence {
         this.current = this.tracker.unavailable(this.settings());
       }
       if (this.settings().enabled && this.current && !this.signal.aborted) {
-        this.publish(this.current.state);
+        this.publish(this.current.state, this.current);
         const members = this.current.people.map((person) => `${person.id}=${person.state}`).join(', ');
-        this.log(`Household presence: ${this.current.state}; ${members}; ${this.current.reason}`);
+        this.log(`Router observation: ${this.current.state}; ${members}; ${this.current.reason}`);
       }
     })().finally(() => {
       this.pending = undefined;

@@ -1,6 +1,7 @@
 import { defaultHousehold, validateHousehold, type HouseholdConfig } from './router.ts';
+import { Presence, type PresenceState } from './presence.ts';
+export { Presence, type PresenceState } from './presence.ts';
 
-export type PresenceState = 'home' | 'away' | 'unknown';
 export type DetectionKind = 'motion' | 'personDetected' | 'strangerDetected';
 export interface Detection {
   kind: DetectionKind;
@@ -116,20 +117,6 @@ export function validateAutomation(value: AutomationConfig): void {
   }
 }
 
-export class Presence {
-  private value: PresenceState = 'unknown';
-  private receivedAt: number | null = null;
-  update(state: PresenceState, now = Date.now()): void {
-    if (!['home', 'away', 'unknown'].includes(state)) throw new Error('Presence must be home, away, or unknown.');
-    this.value = state;
-    this.receivedAt = now;
-  }
-  snapshot(maxAgeMinutes: number, now = Date.now()): { state: PresenceState; receivedAt: number | null } {
-    const fresh = this.receivedAt !== null && now >= this.receivedAt && now - this.receivedAt <= maxAgeMinutes * 60_000;
-    return { state: fresh ? this.value : 'unknown', receivedAt: this.receivedAt };
-  }
-}
-
 function inTimeWindow(rule: AutomationRule, timeZone: string, at: Date): boolean {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
   const now = `${parts.find((part) => part.type === 'hour')!.value}:${parts.find((part) => part.type === 'minute')!.value}`;
@@ -166,10 +153,14 @@ export class AutomationEngine {
     log: (message: string) => void; signal: AbortSignal; now?: () => number;
   }) {
     this.settings = options.settings; this.presence = options.presence;
+    this.presence.configure(this.settings.household, this.settings.presenceMaxAgeMinutes);
     this.execute = options.execute; this.log = options.log; this.signal = options.signal;
     this.clock = options.now || Date.now;
   }
-  configure(settings: AutomationConfig): void { validateAutomation(settings); this.settings = settings; this.presenceChanged(); }
+  configure(settings: AutomationConfig): void {
+    validateAutomation(settings); this.settings = settings;
+    this.presence.configure(settings.household, settings.presenceMaxAgeMinutes); this.presenceChanged();
+  }
   config(): AutomationConfig { return this.settings; }
   status() { return this.lastEvent; }
   speakerTestStatus(now = this.clock()): SpeakerTest | null {

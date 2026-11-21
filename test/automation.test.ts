@@ -10,6 +10,30 @@ function settings(): AutomationConfig {
 }
 const detection = (time = '2026-11-20T18:00:00Z'): Detection => ({ kind: 'personDetected', camera: 'example-camera', at: new Date(time) });
 
+test('individual household reports gate actions and a Maps arrival cancels later actions', async () => {
+  const config = settings(); config.household.mode = 'hybrid';
+  const presence = new Presence(); let now = 1000;
+  const calls: string[] = [];
+  let started!: () => void;
+  const firstAction = new Promise<void>((resolve) => { started = resolve; });
+  const engine = new AutomationEngine({ settings: config, presence, signal: new AbortController().signal, now: () => now, log: () => {},
+    execute: async (name, device, signal) => {
+      calls.push(name); started();
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      return 'cancelled';
+    },
+  });
+  presence.report('person-1', 'away', 'geofence', now);
+  engine.handle(detection()); await engine.flush();
+  assert.deepEqual(calls, []);
+  presence.report('person-2', 'away', 'maps-notification', now);
+  now += 180_000;
+  engine.handle(detection()); await firstAction;
+  presence.report('person-2', 'home', 'maps-notification', now);
+  engine.presenceChanged(); await engine.flush();
+  assert.deepEqual(calls, ['lamp']);
+});
+
 test('evening rules require fresh away presence and the configured camera', () => {
   const presence = new Presence();
   const engine = new AutomationEngine({ settings: settings(), presence, execute: async () => 'ok', log: () => {}, signal: new AbortController().signal });

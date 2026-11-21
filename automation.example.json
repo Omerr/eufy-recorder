@@ -85,6 +85,7 @@
   ],
   "household": {
     "enabled": false,
+    "mode": "router",
     "pollSeconds": 60,
     "awayGraceSeconds": 180,
     "people": [

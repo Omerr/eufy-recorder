@@ -326,7 +326,11 @@ async function main(): Promise<void> {
       }
       routerPresence = new RouterPresence({
         client: routerClient, settings: () => automations.config().household,
-        publish: (state) => { phonePresence.update(state); automations.presenceChanged(); }, log, signal: abort.signal,
+        publish: (state, snapshot) => {
+          phonePresence.observeRouter(snapshot);
+          if (automations.config().household.mode !== 'hybrid') phonePresence.update(state);
+          automations.presenceChanged();
+        }, log, signal: abort.signal,
       });
       void routerPresence.refresh().catch(() => log('Router presence initialization failed.'));
       const apiToken = process.env[settings.automations.api.tokenEnv];

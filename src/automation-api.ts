@@ -5,6 +5,7 @@ import { AutomationEngine, Presence, automationConfig, type DetectionKind, type 
 import { controlPage } from './control-page.ts';
 import type { RouterPresence } from './router.ts';
 import type { YotoCatalog } from './yoto-catalog.ts';
+import type { ReportSource } from './presence.ts';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -45,19 +46,26 @@ export async function startAutomationApi(options: {
     try {
       const url = new URL(request.url || '/', 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/api/state') {
-        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
+        reply(200, { presence: options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes), phoneReports: options.presence.details(), enabled: options.engine.config().enabled, lastEvent: options.engine.status(), speakerTest: options.engine.speakerTestStatus(), household: options.router?.status() || null });
       } else if (request.method === 'GET' && url.pathname === '/api/config') {
         reply(200, options.engine.config());
       } else if (request.method === 'GET' && url.pathname === '/api/yoto') {
         if (!options.yotoChoices) throw new Error('Yoto is not initialized.');
         reply(200, await options.yotoChoices(AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])));
       } else if (request.method === 'POST' && url.pathname === '/api/presence') {
-        if (options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
+        const hybrid = options.engine.config().household.mode === 'hybrid';
+        if (!hybrid && options.engine.config().household.enabled) throw new Error('Router household presence is active; phone reports cannot override it.');
         const value = await body(request);
         if (!['home', 'away', 'unknown'].includes(value.state as string)) throw new Error('state must be home, away, or unknown.');
-        options.presence.update(value.state as PresenceState);
+        if (hybrid) {
+          if (typeof value.person !== 'string' || !['geofence', 'maps-notification'].includes(value.source as string)) throw new Error('Supply a registered person and geofence or maps-notification source.');
+          options.presence.report(value.person, value.state as PresenceState, value.source as ReportSource);
+        } else {
+          if (value.person !== undefined || value.source !== undefined) throw new Error('Select phone reports with router home detection for individual reports.');
+          options.presence.update(value.state as PresenceState);
+        }
         options.engine.presenceChanged();
-        options.log(`Phone presence: ${value.state}`);
+        options.log(`Phone presence: ${hybrid ? `${value.person} (${value.source})` : 'household'}=${value.state}`);
         reply(200, options.presence.snapshot(options.engine.config().presenceMaxAgeMinutes));
       } else if (request.method === 'POST' && url.pathname === '/api/simulate') {
         const value = await body(request);

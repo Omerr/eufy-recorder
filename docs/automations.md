@@ -80,8 +80,9 @@ Defaults:
 
 An away-only rule stays blocked during unknown states and the departure grace period.
 Changing phone mappings restarts that grace period.
-While router presence is enabled, MacroDroid reports cannot override the household state.
-The phone apps are optional with this source.
+In router mode, MacroDroid reports cannot override household presence.
+The phone apps are optional with this mode.
+The phone reports mode below uses positive Wi-Fi association as additional home evidence.
 
 Wi-Fi presence is a connection-based estimate of occupancy. A phone with Wi-Fi switched off counts as absent.
 Check that phones remain associated with their screens off before relying on the setup.
@@ -90,41 +91,98 @@ No router network settings are changed by the monitor.
 
 ## Android presence with MacroDroid
 
-Presence starts as unknown after each recorder restart.
-An away-only rule requires a fresh, explicit away report.
-Missing or stale reports become unknown and block that rule.
+Select **Phone reports with router home detection** under **Household presence settings**, then save.
+Keep **Check home Wi-Fi connections** enabled when router credentials are available.
+This sets `household.mode` to `hybrid`; router mode remains the default for existing installations.
+
+Each configured person has a separate home, away, or unknown report.
+Any fresh home report or current home Wi-Fi association makes the household home.
+Away requires fresh, explicit away reports from every person throughout the departure grace period.
+Wi-Fi absence contributes no away evidence in this mode.
+Missing or expired reports become unknown and block away-only rules.
+Reports start unknown after a recorder restart or presence settings change.
+The default report expiry is 15 minutes; the departure grace is three minutes.
 Returning home cancels active actions and prevents later actions in the same rule.
 
-Keep Tailscale connected on Android, including when using mobile data.
-Allow MacroDroid to read Wi-Fi connection information and run in the background.
-Select your home Wi-Fi networks inside MacroDroid; the recorder needs no SSID or Wi-Fi password.
+### Phone settings
 
-Use an HTTP Request action with these settings:
+Keep Tailscale connected on the reporting phone, including when using mobile data.
+Give MacroDroid precise location access **Allow all the time** and allow background battery usage.
+Keep Android Location enabled.
+Notification access is needed only when forwarding Google Maps alerts.
+Home coordinates stay on the phone; the recorder receives a person ID, source, and state.
 
-The configuration page also provides ready-to-copy requests under **Set up MacroDroid**.
-In MacroDroid's HTTP Request action, use its menu's **Import from cURL string** option.
-The page fills in your endpoint and key locally after you sign in.
+### HTTP action
+
+Open **Set up MacroDroid** on the recorder's control page.
+Select the person and report source.
+Copy the appropriate home, away, or unknown request.
+These requests include the private access key; keep them on your own devices.
+
+In MacroDroid, add an **HTTP Request** action.
+Use its menu's **Import from cURL string** option to paste the request.
+The control page fills in the endpoint, access key, person ID, and source locally.
+An individual report has this shape:
 
 ```text
 Method: POST
 URL: http://WINDOWS_TAILSCALE_ADDRESS:8788/api/presence
 Header: Authorization: Bearer YOUR_PRIVATE_KEY
 Header: Content-Type: application/json
-Body: {"state":"home"}
+Body: {"person":"person-1","source":"geofence","state":"home"}
 ```
 
-Create these macros:
+### Geofence transitions
 
-1. When connecting to either home Wi-Fi network, send `home` immediately.
-2. When disconnecting, wait 60 seconds. If still disconnected from both home networks, send `away`.
-3. Every five minutes, report the current state. Send `home` on a home network and `away` after leaving.
+Create a home geofence in MacroDroid, with a radius of about 200–300 metres.
+Create two macros:
 
-If Android cannot determine the Wi-Fi state, send `unknown`.
-Grant location permission all the time and keep Android Location enabled for reliable SSID detection.
-If Location is disabled, the heartbeat must send `unknown`.
-Confirm the home and away reports on the configuration page before enabling rules.
-The default report expiry is 15 minutes and can be changed in the configuration.
-Wi-Fi presence describes network membership; it is an approximation of physical presence.
+1. **My arrival:** Geofence Trigger, entering Home; send this person's `geofence` home request.
+2. **My departure:** Geofence Trigger, exiting Home; send this person's `geofence` away request.
+
+Enable **Trigger if Previous Location Unknown** if available, to help initialize after restart.
+Keep the light and sound rules disabled during setup.
+Check each person's state on the control page while testing arrival and departure.
+Testing an HTTP action manually verifies delivery; it bypasses the macro's location trigger.
+
+Transitions alone provide temporary presence evidence.
+For ongoing away detection, add periodic verification using a newly obtained location fix before reporting the current state.
+Send unknown when location is unavailable, old, or too inaccurate to distinguish inside from outside.
+Repeating a stored home/away variable cannot verify current location.
+
+### Google Maps notifications through one phone
+
+Google Maps supports arrival and departure notifications for a person sharing their location with you.
+On the receiving phone, open Maps, profile picture, **Location sharing**, then select that person.
+Under **Notifications**, tap **Add**, choose home, and enable arrival and departure alerts.
+Google informs the sharing person when these alerts are added.
+See [Google's notification instructions](https://support.google.com/maps/answer/11966807).
+
+Grant MacroDroid Android **Notification access**.
+Create two macros using **Notification received**, with **Maps** as the selected app:
+
+1. Match that person's actual arrival alert for home; send their `maps-notification` home request.
+2. Match that person's actual departure alert for home; send their `maps-notification` away request.
+
+Match the person, location, and arrival/departure wording from a real notification in the phone's language.
+Use exact text or a carefully bounded pattern.
+Matching only a person's name or the word home can include unrelated notifications.
+Leave each macro unconfigured until a real alert establishes its wording.
+Only the state is forwarded; notification text stays on the phone.
+
+Maps alerts report transitions and cannot supply periodic location verification.
+Forward each new alert once.
+Do not repeat an old departure alert through a timer or retry queue.
+After the report expiry, that person's state becomes unknown until new evidence arrives.
+Notification forwarding alone cannot sustain all-away detection during a long absence.
+A location reporter on each phone provides a way to renew evidence while both people remain away.
+
+### Legacy single-state reports
+
+With router checks disabled and `household.mode` set to `router`, the original
+`{"state":"home"}` API body remains supported.
+That body describes the whole household.
+Use individual reports when tracking multiple people.
 
 ## Yeelight
 
