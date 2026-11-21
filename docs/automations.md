@@ -177,6 +177,19 @@ After the report expiry, that person's state becomes unknown until new evidence 
 Notification forwarding alone cannot sustain all-away detection during a long absence.
 A location reporter on each phone provides a way to renew evidence while both people remain away.
 
+### Recover the phone macros
+
+Export the macros and geofences through MacroDroid's **Export/Import** screen after changing them.
+The export contains home coordinates and HTTP access keys. Keep it in private encrypted recovery storage.
+Copy a fresh export after phone changes; computer backups cover the last copied version.
+
+On a replacement phone, import the saved macros and geofences through MacroDroid.
+Use **Select items to import** to preserve existing macros.
+Connect Tailscale and grant background location, notification access, and the required battery exemption.
+Update HTTP request addresses and keys if the restored recorder uses different values.
+Check Google Maps arrival and departure notifications separately; those settings belong to the Google account.
+Keep device response rules paused until real arrivals and departures verify each person's reports.
+
 ### Legacy single-state reports
 
 With router checks disabled and `household.mode` set to `router`, the original
