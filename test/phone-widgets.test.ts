@@ -10,6 +10,10 @@ test('sleep widget has one manual action, a limited key, and stable IDs for repe
   assert.equal(first.macroList.length, 1);
   const macro = first.macroList[0];
   assert.equal(macro.m_triggerList[0].m_classType, 'WidgetPressedTrigger');
+  // MacroDroid's colored buttons activate every macro registered to that color.
+  // Type 4 is a custom widget, selected by macro when placed on the launcher.
+  assert.equal(macro.m_triggerList[0].m_widgetType, 4);
+  assert.equal(macro.m_triggerList[0].m_widgetLabel, 'Sleep music');
   assert.deepEqual(macro.m_constraintList, []);
   assert.equal(macro.m_GUID, second.macroList[0].m_GUID);
   assert.equal(macro.m_GUID, sleepWidget('http://replacement.example:8788', key).macroList[0].m_GUID);

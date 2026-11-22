@@ -338,7 +338,8 @@ Generate a private MacroDroid import on Windows:
 The export is saved as `phone-exports/yoto-sleep-widget.mdr` in the private recorder state folder.
 It contains one macro and a playback-only access key. Keep the file private.
 Import that file on each Android phone using MacroDroid's **Select items to import** option.
-Then add a MacroDroid button widget to the home screen and select **Yoto - Sleep music**.
+Then add the MacroDroid **Custom** widget to the home screen and select **Yoto - Sleep music**.
+The button displays **Sleep music** and uses its own trigger. Colored widgets share triggers with other macros using that color.
 The default export uses Tailscale. The Windows recorder service must be running.
 
 For a phone that uses home Wi-Fi only, save `sleep-lan.json` in the private recorder state folder:

@@ -22,7 +22,8 @@ export function sleepWidget(apiOrigin: string, automationToken: string, homeWifi
       isExtra: false, aiGenerated: 0, lastEditedTimestamp: Date.now(), disabledTimestamp: 0, forceEvenIfNotEnabledTimestamp: 0,
       m_constraintList: [],
       m_triggerList: [{ ...item('WidgetPressedTrigger', 'trigger'), m_imageId: 0, m_widgetLabel: 'Sleep music',
-        m_widgetType: 0, iconText: '☾', iconTintEnabled: false, tintColor: -1 }],
+        // Custom widgets select a single macro; colored buttons share their trigger with other macros.
+        m_widgetType: 4, iconText: '☾', iconTintEnabled: false, tintColor: -1 }],
       m_actionList: [{ ...item('HttpRequestAction', 'action'), requestConfig: {
         urlToOpen: new URL('/api/shortcuts/sleep', origin).href, requestType: 1, contentType: 'application/json',
         contentBodySource: 0, contentBodyText: '{}',
